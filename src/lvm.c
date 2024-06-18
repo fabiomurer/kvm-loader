@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include "elf.h"
+#include "page.h"
 
 #define __pck __attribute__((packed))
 
@@ -128,16 +129,6 @@ static void print_nbytes(uint8_t *addr, size_t count)
 	printf("\n");
 }
 
-size_t floor_up(size_t x)
-{
-	return (x + SEG_SIZE - 1) / SEG_SIZE * SEG_SIZE;
-}
-
-size_t floor_down(size_t x)
-{
-	return x - (x % SEG_SIZE);
-}
-
 void print_seg(struct seg_desc *desc)
 {
 	printf("Base0: %x base1: %x base2: %x\n", desc->base0, desc->base1,
@@ -210,19 +201,21 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	return res;
 }
 
-static void *mpt;
 #define GUEST_PT_ADDR 0xA000
+#define PAGE_TABLES_SIZE (PAGE_SIZE * 0x55)
+#define PAGE_TABLES_SLOT 2
+static void *mpt;
 static int init_page_table_space(int vmfd)
 {
 	int err;
 
-	mpt = mmap(NULL, 0x66000, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	memset(mpt, 0, 0x66000);
+	mpt = mmap(NULL, PAGE_TABLES_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	memset(mpt, 0, PAGE_TABLES_SIZE);
 
 	struct kvm_userspace_memory_region region = {};
-	region.slot = 2;
+	region.slot = PAGE_TABLES_SLOT;
 	region.guest_phys_addr = GUEST_PT_ADDR;
-	region.memory_size = 0x66000;
+	region.memory_size = PAGE_TABLES_SIZE;
 	region.userspace_addr = (uint64_t) mpt;
 
 	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &region);
@@ -233,7 +226,6 @@ static int init_page_table_space(int vmfd)
 }
 
 static size_t page_num = 0;
-#define PAGE_SIZE 4096
 
 #define pt_addr void *
 
@@ -275,15 +267,30 @@ struct addr_pair from_guest(pt_addr gaddr)
 }
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+#define PAGE_TABLE_LEVELS 4
+
+#define SHIFT_LVL_0	39
+#define SHIFT_LVL_1	30
+#define SHIFT_LVL_2	21
+#define SHIFT_LVL_3	12
+
+#define PAGE_PRESENT	(1 << 0)
+#define PAGE_RW		(1 << 1)
+
+static pt_addr set_pte_flags(pt_addr e, uint64_t flags)
+{
+	return (pt_addr) ((uint64_t)e | flags);
+}
+
 int map_addr(uint64_t vaddr, uint64_t phys_addr)
 {
 	size_t i = 0;
 	struct addr_pair cur_addr = pml4t_addr;
-	uint64_t ind[4] = {
-		(vaddr & _AC(0xff8000000000, ULL)) >> 39,
-		(vaddr & _AC(0x7fc0000000, ULL)) >> 30,
-		(vaddr & _AC(0x3fe00000, ULL)) >> 21,
-		(vaddr & _AC(0x1FF000, ULL)) >> 12,
+	uint64_t ind[PAGE_TABLE_LEVELS] = {
+		(vaddr & _AC(0xff8000000000, ULL)) >> SHIFT_LVL_0,
+		(vaddr & _AC(0x7fc0000000, ULL)) >> SHIFT_LVL_1,
+		(vaddr & _AC(0x3fe00000, ULL)) >> SHIFT_LVL_2,
+		(vaddr & _AC(0x1FF000, ULL)) >> SHIFT_LVL_3,
 	};
 
 	if (vaddr % PAGE_SIZE != 0)
@@ -291,17 +298,16 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 	if (phys_addr % PAGE_SIZE != 0)
 		return -1;
 	
-	for (i = 0; i < ARRAY_SIZE(ind); i++) {
+	for (i = 0; i < PAGE_TABLE_LEVELS; i++) {
 		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
-		if (i == 3) {
-			*g_a = (pt_addr)(phys_addr | 0x3);
+		if (i == PAGE_TABLE_LEVELS - 1) {
+			// Last page. Just set it to the physicall address
+			*g_a = set_pte_flags(phys_addr, PAGE_PRESENT | PAGE_RW);
 			break;
 		}
 		if (!*g_a) {
 			printf("Allocating level %zu\n", i);
-			*g_a = (pt_addr) ((uint64_t)alloc_page_from_mpt().guest | 0x03);
-		} else {
-			printf("Next exists! %p\n", *g_a);
+			*g_a = set_pte_flags(alloc_page_from_mpt().guest, PAGE_PRESENT | PAGE_RW);
 		}
 		cur_addr = from_guest(*g_a);
 	}
@@ -318,16 +324,16 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 	return 0;
 }
 
+#define PTE_ENTRY_SIZE 8
 void follow_addr(pt_addr addr, int level)
 {
 	if (level == 4)
 		return;
 	size_t i = 0;
-	for (i = 0; i < 512; i++) {
+	for (i = 0; i < PAGE_SIZE / PTE_ENTRY_SIZE; i++) {
 		pt_addr *p = (pt_addr *)(from_guest(addr).host + i * sizeof(pt_addr));
 		if (*p) {
-			printf("Entry %d at level %d points to %p\n", i, level,
-				*p);
+			printf("Entry %d at level %d points to %p\n", i, level, *p);
 			follow_addr(*p, level + 1);
 		}
 	}
@@ -343,7 +349,6 @@ int start_vm(char *fname)
 	int ret;
 
 	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	printf("KVM: %d\n", kvm);
 	ret = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
 	if (ret == -1)
 		err(1, "KVM_CHECK_EXTENSION");
