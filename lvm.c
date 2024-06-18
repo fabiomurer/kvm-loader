@@ -14,13 +14,6 @@
 
 #define __pck __attribute__((packed))
 
-#define GDT_ENTRY(flags, base, limit)			\
-	((((base)  & _AC(0xff000000,ULL)) << (56-24)) |	\
-	 (((flags) & _AC(0x0000f0ff,ULL)) << 40) |	\
-	 (((limit) & _AC(0x000f0000,ULL)) << (48-16)) |	\
-	 (((base)  & _AC(0x00ffffff,ULL)) << 16) |	\
-	 (((limit) & _AC(0x0000ffff,ULL))))
-
 #define SEG_SIZE 0x1000
 #define GDT_OFFSET 0x500
 #define IDT_OFFSET 0x520
@@ -96,25 +89,19 @@ static void init_gdt(void *mem, struct kvm_sregs *sregs)
 	memcpy(gdt_addr + 8, &KERNEL_CODE_SEG, 8);
 	memcpy(gdt_addr + 16, &DATA_SEG, 8);
 
-	printf("gdt old base: %x gdt old limit: %x\n", sregs->gdt.base, sregs->gdt.limit);
-	printf("idt old base: %x idt old limit: %x\n", sregs->idt.base, sregs->idt.limit);
 	sregs->gdt.base = GDT_OFFSET + GUEST_INFO_START;
 	sregs->gdt.limit = 3 * 8 - 1;
-	printf("GDT base: %llu GDT limit: %llu\n", sregs->gdt.base, sregs->gdt.limit);
 	memset(mem + IDT_OFFSET + GUEST_INFO_START, 0, 8);
 	sregs->idt.base = IDT_OFFSET + GUEST_INFO_START;
 	sregs->idt.limit = 7;
 	sregs->cr0 |= 1 | (0x80000000ULL);
 	sregs->efer |= 0x100 | 0x400;
-	printf("Efer: %llx\n", sregs->efer);
-	printf("cs limit: %x cs base: %x\n", sregs->cs.limit, sregs->cs.base);
 	sregs->cs = seg_from_desc(KERNEL_CODE_SEG, 1);
 	sregs->ds = seg_from_desc(DATA_SEG, 2);
 	sregs->ss = seg_from_desc(DATA_SEG, 2);
 	sregs->es = seg_from_desc(DATA_SEG, 2);
 	sregs->fs = seg_from_desc(DATA_SEG, 2);
 	sregs->gs = seg_from_desc(DATA_SEG, 2);
-	printf("GDT CS base: %llx\n", sregs->ds.base);
 }
 
 static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
@@ -287,33 +274,31 @@ struct addr_pair from_guest(pt_addr gaddr)
 	return res;
 }
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 int map_addr(uint64_t vaddr, uint64_t phys_addr)
 {
-	if (vaddr % PAGE_SIZE != 0)
-		return -1;
-	if (phys_addr % PAGE_SIZE != 0)
-		return -1;
-
+	size_t i = 0;
+	struct addr_pair cur_addr = pml4t_addr;
 	uint64_t ind[4] = {
 		(vaddr & _AC(0xff8000000000, ULL)) >> 39,
 		(vaddr & _AC(0x7fc0000000, ULL)) >> 30,
 		(vaddr & _AC(0x3fe00000, ULL)) >> 21,
 		(vaddr & _AC(0x1FF000, ULL)) >> 12,
 	};
-	printf("Mapping address %lx\n", vaddr);
-	size_t i = 0;
-	for (i = 0; i < 4; i++)
-		printf("Ind %d: %lx ", i, ind[i]);
-	printf("\n");
-	struct addr_pair cur_addr = pml4t_addr;
-	for (i = 0; i < 4; i++) {
+
+	if (vaddr % PAGE_SIZE != 0)
+		return -1;
+	if (phys_addr % PAGE_SIZE != 0)
+		return -1;
+	
+	for (i = 0; i < ARRAY_SIZE(ind); i++) {
 		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
 		if (i == 3) {
 			*g_a = (pt_addr)(phys_addr | 0x3);
 			break;
 		}
 		if (!*g_a) {
-			printf("Allocating level %d\n", i);
+			printf("Allocating level %zu\n", i);
 			*g_a = (pt_addr) ((uint64_t)alloc_page_from_mpt().guest | 0x03);
 		} else {
 			printf("Next exists! %p\n", *g_a);
@@ -426,12 +411,6 @@ clean:
 
 int main(int argc, char *argv[])
 {
-	uint64_t entry = GDT_ENTRY(0xa09b, 0x0, 0xfffff);
-	struct seg_desc *seg = (struct seg_desc *)&entry;
-	printf("Sizeof: %d\n", sizeof(*seg));
-	print_seg(seg);
-
-	printf("S: %d\n", sizeof(struct seg_desc));
 	if (argc != 2) {
 		printf("Usage: %s <filename>\n", argv[0]);
 		exit(-1);
