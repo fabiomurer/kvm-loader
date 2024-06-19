@@ -9,6 +9,6 @@ all: $(OBJS)
 testprog:
 	gcc -fno-pie -m32 -no-pie testprog/testprog.c -o tprog -nostdlib
 clean:
-	rm -rf *.o lvm
+	rm -rf ${OBJS} lvm
 
 .PHONY: all testprog clean
