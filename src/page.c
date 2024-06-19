@@ -14,11 +14,11 @@ static void *mpt;
 static int init_page_table_space(int vmfd)
 {
 	int err;
+	struct kvm_userspace_memory_region region = {};
 
 	mpt = mmap(NULL, PAGE_TABLES_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	memset(mpt, 0, PAGE_TABLES_SIZE);
 
-	struct kvm_userspace_memory_region region = {};
 	region.slot = PAGE_TABLES_SLOT;
 	region.guest_phys_addr = GUEST_PT_ADDR;
 	region.memory_size = PAGE_TABLES_SIZE;
@@ -42,6 +42,7 @@ static struct addr_pair alloc_page_from_mpt(void)
 {
 	pt_addr res_host = (uint64_t)mpt + PAGE_SIZE * page_num;
 	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
+
 	page_num++;
 	memset((void *)res_host, 0, PAGE_SIZE);
 
@@ -145,7 +146,7 @@ static void follow_addr(pt_addr addr, int level)
 	for (i = 0; i < PAGE_SIZE / PTE_ENTRY_SIZE; i++) {
 		pt_addr *p = (pt_addr *)(from_guest(addr).host + i * sizeof(pt_addr));
 		if (*p) {
-			printf("Entry %zu at level %d points to %lu\n", i, level, *p);
+			printf("Entry %zu at level %d points to %lx\n", i, level, *p);
 			follow_addr(*p, level + 1);
 		}
 	}
@@ -155,4 +156,3 @@ void print_page_mapping(void)
 {
 	follow_addr(pml4t_addr.guest, 0);
 }
-

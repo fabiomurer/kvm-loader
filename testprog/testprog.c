@@ -1,6 +1,16 @@
-__attribute__((naked)) int _start(void)
+char C = 'O';
+
+void print(char *s)
 {
-	asm("out %0, %1" : : "a" ('X'), "Nd" (0x3f8) : );
+	while(*s) {
+		asm("out %0, %1" : : "a" (*s), "Nd" (0x3f8) : );
+		s++;
+	}
+}
+
+int _start(void)
+{
+	print("Hello!");
 	asm("hlt");
 	return 0;
 }

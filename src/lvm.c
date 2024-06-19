@@ -146,7 +146,7 @@ void print_seg(struct seg_desc *desc)
 
 static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sregs)
 {
-	struct elf32_program *program;
+	struct elf64_program *program;
 	struct elf_vm_info res = { 0 };
 	size_t i, n = 1;
 	void *mem;
@@ -174,7 +174,7 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	memset(mem, 0, 0xF0000);
 	struct kvm_userspace_memory_region region = {};
 	region.slot = 1;
-	region.guest_phys_addr = 0x8000000;
+	region.guest_phys_addr = 0x400000;
 	region.memory_size = 0xF0000;
 	region.userspace_addr = (uint64_t)mem;
 	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &region);
@@ -189,11 +189,12 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	}
 
 	for (i = 0; i < program->elf_header->e_phnum; i++) {
-		struct elf32_segment_hdr *sh = program->segment_headers[i];
+		struct elf64_segment_hdr *sh = program->segment_headers[i];
 		if (sh->p_type != 0x01)
 			continue;
-		read_from_file(mem + (sh->p_vaddr - 0x8000000), fname, sh->p_offset, sh->p_filesz);
-		print_nbytes(mem + (sh->p_vaddr - 0x8000000), sh->p_filesz);
+		printf("Reading %x bytes from %x offset into the memory at addr %x\n", sh->p_filesz, sh->p_offset, sh->p_vaddr);
+		read_from_file(mem + (sh->p_vaddr - 0x400000), fname, sh->p_offset, sh->p_filesz);
+		print_nbytes(mem + (sh->p_vaddr - 0x400000), sh->p_filesz);
 	}
 	res.start_addr = program->elf_header->e_entry;
 
@@ -227,7 +228,7 @@ int start_vm(char *fname)
 
 	printf("===PAGE TABLE STUFF===\n");
 	map_range(GUEST_INFO_START, GUEST_INFO_START, 5);
-	map_addr(0x8049000, 0x8049000);
+	map_range(0x401000, 0x401000, 10);
 	print_page_mapping();
 	printf("===PAGE TABLE STUFF===\n");
 	struct elf_vm_info info = load_elf(fname, vmfd, &sregs);
