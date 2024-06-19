@@ -7,7 +7,7 @@ all: $(OBJS)
 %.o: %.c
 	gcc ${CFLAGS} -o $@ -c $<
 testprog:
-	gcc -fno-pie -m32 -no-pie testprog/testprog.c -o tprog -nostdlib
+	gcc -fno-pie -no-pie testprog/testprog.c -o tprog -nostdlib
 clean:
 	rm -rf ${OBJS} lvm
 

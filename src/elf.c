@@ -7,7 +7,7 @@
 
 #include "elf.h"
 
-static int read_elf_header(int fd, struct elf32_header *result)
+static int read_elf_header(int fd, struct elf64_header *result)
 {
 	lseek(fd, 0, 0);
 	read(fd, result, sizeof(*result));
@@ -15,7 +15,7 @@ static int read_elf_header(int fd, struct elf32_header *result)
 	return 0;
 }
 
-static int read_seg_headers(int fd, struct elf32_header *elf_hdr, struct elf32_segment_hdr **res)
+static int read_seg_headers(int fd, struct elf64_header *elf_hdr, struct elf64_segment_hdr **res)
 {
 	size_t i; 
 	lseek(fd, elf_hdr->e_phoff, 0);
@@ -31,7 +31,7 @@ static int read_seg_headers(int fd, struct elf32_header *elf_hdr, struct elf32_s
 	return 0;
 }
 
-void print_ident(struct elf32_header *hdr)
+void print_ident(struct elf64_header *hdr)
 {
 	uint32_t i;
 
@@ -41,7 +41,7 @@ void print_ident(struct elf32_header *hdr)
 	printf("\n");
 }
 
-static int alloc_segment_headers(struct elf32_program *elf)
+static int alloc_segment_headers(struct elf64_program *elf)
 {
 	elf->segment_headers = malloc(sizeof(*elf->segment_headers) * elf->elf_header->e_phnum);
 	if (!elf->segment_headers)
@@ -49,14 +49,14 @@ static int alloc_segment_headers(struct elf32_program *elf)
 	return 0;
 }
 
-struct elf32_program *parse_elf(char *filename)
+struct elf64_program *parse_elf(char *filename)
 {
-	struct elf32_program *elf;
+	struct elf64_program *elf;
 	int fd;
 
 	elf = malloc(sizeof(*elf));
 	if (!elf) {
-		printf("Can't allocate memory for the elf32_program!\n");
+		printf("Can't allocate memory for the elf64_program!\n");
 		return NULL;
 	}
 
@@ -76,7 +76,7 @@ struct elf32_program *parse_elf(char *filename)
 	return elf;
 }
 
-void free_elf(struct elf32_program *elf)
+void free_elf(struct elf64_program *elf)
 {
 	size_t i;
 	for (i = 0; i < elf->elf_header->e_phnum; i++) {
