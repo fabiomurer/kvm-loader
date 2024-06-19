@@ -192,7 +192,7 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 		struct elf64_segment_hdr *sh = program->segment_headers[i];
 		if (sh->p_type != 0x01)
 			continue;
-		printf("Reading %x bytes from %x offset into the memory at addr %x\n", sh->p_filesz, sh->p_offset, sh->p_vaddr);
+		printf("Reading %lx bytes from %lx offset into the memory at addr %lx\n", sh->p_filesz, sh->p_offset, sh->p_vaddr);
 		read_from_file(mem + (sh->p_vaddr - 0x400000), fname, sh->p_offset, sh->p_filesz);
 		print_nbytes(mem + (sh->p_vaddr - 0x400000), sh->p_filesz);
 	}
