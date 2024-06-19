@@ -148,8 +148,8 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 {
 	struct elf64_program *program;
 	struct elf_vm_info res = { 0 };
-	size_t i, n = 1;
-	void *mem;
+	size_t i, n = 1, pages_count;
+	struct addr_pair mem;
 	int err;
 	void *stuff;
 
@@ -162,24 +162,9 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	memset(stuff, 0, 0x5000);
 	init_gdt(stuff, sregs);
 
-	struct seg_desc *p = (struct seg_desc *)(stuff + GDT_OFFSET + 16);
-	print_seg(p);
-
 	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &sregion);
 	if (err) {
 		printf("Failed to create memregion1: %d\n", err);
-		exit(-1);
-	}
-	mem = mmap(NULL, 0xF0000, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	memset(mem, 0, 0xF0000);
-	struct kvm_userspace_memory_region region = {};
-	region.slot = 1;
-	region.guest_phys_addr = 0x400000;
-	region.memory_size = 0xF0000;
-	region.userspace_addr = (uint64_t)mem;
-	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (err) {
-		printf("Failed to create memregion: %d\n", err);
 		exit(-1);
 	}
 	program = parse_elf(fname);
@@ -193,8 +178,11 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 		if (sh->p_type != 0x01)
 			continue;
 		printf("Reading %lx bytes from %lx offset into the memory at addr %lx\n", sh->p_filesz, sh->p_offset, sh->p_vaddr);
-		read_from_file(mem + (sh->p_vaddr - 0x400000), fname, sh->p_offset, sh->p_filesz);
-		print_nbytes(mem + (sh->p_vaddr - 0x400000), sh->p_filesz);
+		pages_count = (sh->p_filesz + PAGE_SIZE - 1) / PAGE_SIZE;
+		mem = alloc_pages_from_mpt(pages_count);
+		map_range(sh->p_vaddr, mem.guest, pages_count);
+		read_from_file((void *)mem.host, fname, sh->p_offset, sh->p_filesz);
+		//print_nbytes(mem + (sh->p_vaddr - 0x400000), sh->p_filesz);
 	}
 	res.start_addr = program->elf_header->e_entry;
 
@@ -226,18 +214,17 @@ int start_vm(char *fname)
 	ioctl(vcpufd, KVM_GET_SREGS, &sregs);
 	init_page_tables(vmfd);
 
-	printf("===PAGE TABLE STUFF===\n");
 	map_range(GUEST_INFO_START, GUEST_INFO_START, 5);
-	map_range(0x401000, 0x401000, 10);
+	struct elf_vm_info info = load_elf(fname, vmfd, &sregs);
+	printf("===PAGE TABLE STUFF===\n");
 	print_page_mapping();
 	printf("===PAGE TABLE STUFF===\n");
-	struct elf_vm_info info = load_elf(fname, vmfd, &sregs);
 	setup_paging(&sregs);
 	ioctl(vcpufd, KVM_SET_SREGS, &sregs);
 
 	mmap_size = ioctl(kvm, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);	
-	printf("Starting at %lx\n", info.start_addr);
+	printf("Starting ELF at 0x%lx...\n", info.start_addr);
 	struct kvm_regs regs = {
 		.rip = info.start_addr,
 		.rsp = STACK_START,

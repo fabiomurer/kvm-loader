@@ -6,7 +6,8 @@
 #include "page.h"
 
 #define GUEST_PT_ADDR 0xA000
-#define PAGE_TABLES_SIZE (PAGE_SIZE * 0x55)
+#define MPT_COUNT_PAGES 0x100
+#define PAGE_TABLES_SIZE (PAGE_SIZE * MPT_COUNT_PAGES)
 #define PAGE_TABLES_SLOT 2
 #define PTE_ENTRY_SIZE 8
 
@@ -33,18 +34,16 @@ static int init_page_table_space(int vmfd)
 
 static size_t page_num = 0;
 
-struct addr_pair {
-	pt_addr host;
-	pt_addr guest;
-};
-
-static struct addr_pair alloc_page_from_mpt(void)
+struct addr_pair alloc_pages_from_mpt(size_t page_count)
 {
 	pt_addr res_host = (uint64_t)mpt + PAGE_SIZE * page_num;
 	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
 
-	page_num++;
-	memset((void *)res_host, 0, PAGE_SIZE);
+	if (page_num + page_count >= MPT_COUNT_PAGES)
+		return (struct addr_pair){ .host = 0, .guest = 0 };
+
+	page_num += page_count;
+	memset((void *)res_host, 0, PAGE_SIZE * page_count);
 
 	struct addr_pair res = {
 		.host = res_host,
@@ -57,7 +56,7 @@ static struct addr_pair pml4t_addr;
 void init_page_tables(int vmfd)
 {
 	init_page_table_space(vmfd);
-	pml4t_addr = alloc_page_from_mpt();
+	pml4t_addr = alloc_pages_from_mpt(1);
 }
 
 struct addr_pair from_guest(pt_addr gaddr)
@@ -121,7 +120,7 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 		}
 		if (!*g_a) {
 			printf("Allocating level %zu\n", i);
-			*g_a = set_pte_flags(alloc_page_from_mpt().guest, PAGE_PRESENT | PAGE_RW);
+			*g_a = set_pte_flags(alloc_pages_from_mpt(1).guest, PAGE_PRESENT | PAGE_RW);
 		}
 		cur_addr = from_guest(*g_a);
 	}
