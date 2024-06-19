@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include "elf.h"
+#include "page.h"
 
 #define __pck __attribute__((packed))
 
@@ -94,7 +95,7 @@ static void init_gdt(void *mem, struct kvm_sregs *sregs)
 	memset(mem + IDT_OFFSET + GUEST_INFO_START, 0, 8);
 	sregs->idt.base = IDT_OFFSET + GUEST_INFO_START;
 	sregs->idt.limit = 7;
-	sregs->cr0 |= 1 | (0x80000000ULL);
+	sregs->cr0 |= 1;
 	sregs->efer |= 0x100 | 0x400;
 	sregs->cs = seg_from_desc(KERNEL_CODE_SEG, 1);
 	sregs->ds = seg_from_desc(DATA_SEG, 2);
@@ -126,16 +127,6 @@ static void print_nbytes(uint8_t *addr, size_t count)
 		printf("%x ", addr[i]);
 	}
 	printf("\n");
-}
-
-size_t floor_up(size_t x)
-{
-	return (x + SEG_SIZE - 1) / SEG_SIZE * SEG_SIZE;
-}
-
-size_t floor_down(size_t x)
-{
-	return x - (x % SEG_SIZE);
 }
 
 void print_seg(struct seg_desc *desc)
@@ -210,129 +201,6 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	return res;
 }
 
-static void *mpt;
-#define GUEST_PT_ADDR 0xA000
-static int init_page_table_space(int vmfd)
-{
-	int err;
-
-	mpt = mmap(NULL, 0x66000, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	memset(mpt, 0, 0x66000);
-
-	struct kvm_userspace_memory_region region = {};
-	region.slot = 2;
-	region.guest_phys_addr = GUEST_PT_ADDR;
-	region.memory_size = 0x66000;
-	region.userspace_addr = (uint64_t) mpt;
-
-	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &region);
-	if (err) {
-		printf("Failed to create region for page tables\n");
-		return -1;
-	}
-}
-
-static size_t page_num = 0;
-#define PAGE_SIZE 4096
-
-#define pt_addr void *
-
-struct addr_pair {
-	pt_addr host;
-	pt_addr guest;
-};
-
-static struct addr_pair alloc_page_from_mpt(void)
-{
-	pt_addr res_host = mpt + PAGE_SIZE * page_num;
-	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
-	page_num++;
-	memset(res_host, 0, PAGE_SIZE);
-
-	struct addr_pair res = {
-		.host = res_host,
-		.guest = res_guest,
-	};
-	return res;
-}
-
-static struct addr_pair pml4t_addr;
-void init_page_tables(int vmfd)
-{
-	init_page_table_space(vmfd);
-	pml4t_addr = alloc_page_from_mpt();
-}
-
-struct addr_pair from_guest(pt_addr gaddr)
-{
-	gaddr = (pt_addr) ((uint64_t) gaddr / PAGE_SIZE * PAGE_SIZE);
-	struct addr_pair res = {
-		.guest = gaddr,
-		.host = (pt_addr)((uint64_t)mpt + (uint64_t)(gaddr - GUEST_PT_ADDR)),
-	};
-
-	return res;
-}
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
-int map_addr(uint64_t vaddr, uint64_t phys_addr)
-{
-	size_t i = 0;
-	struct addr_pair cur_addr = pml4t_addr;
-	uint64_t ind[4] = {
-		(vaddr & _AC(0xff8000000000, ULL)) >> 39,
-		(vaddr & _AC(0x7fc0000000, ULL)) >> 30,
-		(vaddr & _AC(0x3fe00000, ULL)) >> 21,
-		(vaddr & _AC(0x1FF000, ULL)) >> 12,
-	};
-
-	if (vaddr % PAGE_SIZE != 0)
-		return -1;
-	if (phys_addr % PAGE_SIZE != 0)
-		return -1;
-	
-	for (i = 0; i < ARRAY_SIZE(ind); i++) {
-		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
-		if (i == 3) {
-			*g_a = (pt_addr)(phys_addr | 0x3);
-			break;
-		}
-		if (!*g_a) {
-			printf("Allocating level %zu\n", i);
-			*g_a = (pt_addr) ((uint64_t)alloc_page_from_mpt().guest | 0x03);
-		} else {
-			printf("Next exists! %p\n", *g_a);
-		}
-		cur_addr = from_guest(*g_a);
-	}
-	
-	return 0;
-}
-
-int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
-{
-	size_t mapped;
-
-	for (mapped = 0; mapped <= pages_count; mapped++)
-		map_addr(vaddr + PAGE_SIZE * mapped, phys_addr + PAGE_SIZE * mapped);
-	return 0;
-}
-
-void follow_addr(pt_addr addr, int level)
-{
-	if (level == 4)
-		return;
-	size_t i = 0;
-	for (i = 0; i < 512; i++) {
-		pt_addr *p = (pt_addr *)(from_guest(addr).host + i * sizeof(pt_addr));
-		if (*p) {
-			printf("Entry %d at level %d points to %p\n", i, level,
-				*p);
-			follow_addr(*p, level + 1);
-		}
-	}
-}
-
 int start_vm(char *fname)
 {
 	int kvm, vmfd, vcpufd;
@@ -343,13 +211,15 @@ int start_vm(char *fname)
 	int ret;
 
 	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	printf("KVM: %d\n", kvm);
 	ret = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
-	if (ret == -1)
-		err(1, "KVM_CHECK_EXTENSION");
-	if (!ret)
-		err(1, "KVM_CAP_USER_MEMORY is not available");
-	
+	if (ret == -1) {
+		printf("KVM_CHECK_EXTENSION is not available\n");
+		return -1;
+	}
+	if (!ret) {
+		printf("KVM_CAP_USER_MEMORY is not available\n");
+		return -1;
+	}
 	vmfd = ioctl(kvm, KVM_CREATE_VM, (unsigned long)0);
 	vcpufd = ioctl(vmfd, KVM_CREATE_VCPU, (unsigned long)0);
 	ioctl(vcpufd, KVM_GET_SREGS, &sregs);
@@ -358,17 +228,15 @@ int start_vm(char *fname)
 	printf("===PAGE TABLE STUFF===\n");
 	map_range(GUEST_INFO_START, GUEST_INFO_START, 5);
 	map_addr(0x8049000, 0x8049000);
-	follow_addr(pml4t_addr.guest, 0);
+	print_page_mapping();
 	printf("===PAGE TABLE STUFF===\n");
-	
 	struct elf_vm_info info = load_elf(fname, vmfd, &sregs);
-	sregs.cr3 = pml4t_addr.guest;
-	sregs.cr4 |= 0x20;
+	setup_paging(&sregs);
 	ioctl(vcpufd, KVM_SET_SREGS, &sregs);
 
 	mmap_size = ioctl(kvm, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);	
-	printf("Starting at %llx\n", info.start_addr);
+	printf("Starting at %lx\n", info.start_addr);
 	struct kvm_regs regs = {
 		.rip = info.start_addr,
 		.rsp = STACK_START,
