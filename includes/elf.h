@@ -1,3 +1,5 @@
+#ifndef __KL_ELF
+#define __KL_ELF
 #include <stdint.h>
 
 struct __attribute__((packed)) elf32_header {
@@ -36,3 +38,4 @@ struct elf32_program {
 void print_ident(struct elf32_header *hdr);
 struct elf32_program *parse_elf(char *filename);
 void free_elf(struct elf32_program *elf);
+#endif

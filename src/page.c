@@ -1,3 +1,7 @@
+#include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <string.h>
 #include "elf.h"
 #include "page.h"
 
@@ -36,10 +40,10 @@ struct addr_pair {
 
 static struct addr_pair alloc_page_from_mpt(void)
 {
-	pt_addr res_host = mpt + PAGE_SIZE * page_num;
+	pt_addr res_host = (uint64_t)mpt + PAGE_SIZE * page_num;
 	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
 	page_num++;
-	memset(res_host, 0, PAGE_SIZE);
+	memset((void *)res_host, 0, PAGE_SIZE);
 
 	struct addr_pair res = {
 		.host = res_host,
@@ -57,13 +61,22 @@ void init_page_tables(int vmfd)
 
 struct addr_pair from_guest(pt_addr gaddr)
 {
-	gaddr = (pt_addr) ((uint64_t) gaddr / PAGE_SIZE * PAGE_SIZE);
+	gaddr = gaddr / PAGE_SIZE * PAGE_SIZE;
 	struct addr_pair res = {
 		.guest = gaddr,
-		.host = (pt_addr)((uint64_t)mpt + (uint64_t)(gaddr - GUEST_PT_ADDR)),
+		.host = (uint64_t)mpt + (gaddr - GUEST_PT_ADDR),
 	};
 
 	return res;
+}
+
+#define CR0_ENABLE_PAGING	(1ULL << 31)
+#define CR4_ENABLE_PAE		(1ULL << 5)
+void setup_paging(struct kvm_sregs *sregs)
+{
+	sregs->cr3 = (uint64_t)pml4t_addr.guest;
+	sregs->cr4 |= CR4_ENABLE_PAE;
+	sregs->cr0 |= CR0_ENABLE_PAGING;
 }
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -102,7 +115,7 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
 		if (i == PAGE_TABLE_LEVELS - 1) {
 			// Last page. Just set it to the physicall address
-			*g_a = set_pte_flags(phys_addr, PAGE_PRESENT | PAGE_RW);
+			*g_a = set_pte_flags((pt_addr)phys_addr, PAGE_PRESENT | PAGE_RW);
 			break;
 		}
 		if (!*g_a) {
@@ -124,7 +137,7 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 	return 0;
 }
 
-void follow_addr(pt_addr addr, int level)
+static void follow_addr(pt_addr addr, int level)
 {
 	if (level == 4)
 		return;
@@ -132,10 +145,14 @@ void follow_addr(pt_addr addr, int level)
 	for (i = 0; i < PAGE_SIZE / PTE_ENTRY_SIZE; i++) {
 		pt_addr *p = (pt_addr *)(from_guest(addr).host + i * sizeof(pt_addr));
 		if (*p) {
-			printf("Entry %d at level %d points to %p\n", i, level, *p);
+			printf("Entry %zu at level %d points to %lu\n", i, level, *p);
 			follow_addr(*p, level + 1);
 		}
 	}
 }
 
+void print_page_mapping(void)
+{
+	follow_addr(pml4t_addr.guest, 0);
+}
 
