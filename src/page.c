@@ -34,35 +34,43 @@ static int init_page_table_space(int vmfd)
 
 static size_t page_num = 0;
 
-struct addr_pair alloc_pages_from_mpt(size_t page_count)
+struct alloc_result alloc_pages_from_mpt(size_t page_count)
 {
 	pt_addr res_host = (uint64_t)mpt + PAGE_SIZE * page_num;
 	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
 
 	if (page_num + page_count >= MPT_COUNT_PAGES)
-		return (struct addr_pair){ .host = 0, .guest = 0 };
+		return (struct alloc_result){ .host = 0, .guest = 0 };
 
 	page_num += page_count;
 	memset((void *)res_host, 0, PAGE_SIZE * page_count);
 
-	struct addr_pair res = {
+	struct alloc_result res = {
+		.size = PAGE_SIZE * page_count,
 		.host = res_host,
 		.guest = res_guest,
 	};
 	return res;
 }
 
-static struct addr_pair pml4t_addr;
+struct alloc_result alloc_pages_mapped(size_t page_count)
+{
+	struct alloc_result res = alloc_pages_from_mpt(page_count);
+	map_range(res.guest, res.guest, page_count);
+	return res;
+}
+
+static struct alloc_result pml4t_addr;
 void init_page_tables(int vmfd)
 {
 	init_page_table_space(vmfd);
 	pml4t_addr = alloc_pages_from_mpt(1);
 }
 
-struct addr_pair from_guest(pt_addr gaddr)
+struct alloc_result from_guest(pt_addr gaddr)
 {
 	gaddr = gaddr / PAGE_SIZE * PAGE_SIZE;
-	struct addr_pair res = {
+	struct alloc_result res = {
 		.guest = gaddr,
 		.host = (uint64_t)mpt + (gaddr - GUEST_PT_ADDR),
 	};
@@ -98,7 +106,7 @@ static pt_addr set_pte_flags(pt_addr e, uint64_t flags)
 int map_addr(uint64_t vaddr, uint64_t phys_addr)
 {
 	size_t i = 0;
-	struct addr_pair cur_addr = pml4t_addr;
+	struct alloc_result cur_addr = pml4t_addr;
 	uint64_t ind[PAGE_TABLE_LEVELS] = {
 		(vaddr & _AC(0xff8000000000, ULL)) >> SHIFT_LVL_0,
 		(vaddr & _AC(0x7fc0000000, ULL)) >> SHIFT_LVL_1,

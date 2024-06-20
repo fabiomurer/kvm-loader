@@ -12,98 +12,7 @@
 #include <limits.h>
 #include "elf.h"
 #include "page.h"
-
-#define __pck __attribute__((packed))
-
-#define SEG_SIZE 0x1000
-#define GDT_OFFSET 0x500
-#define IDT_OFFSET 0x520
-#define STACK_START 0x2000
-
-#define GUEST_INFO_START 0x1000
-
-struct __pck seg_desc {
-	uint16_t limit0;
-	uint16_t base0;
-	uint16_t base1: 8, type: 4, s: 1, dpl: 2, p: 1;
-	uint16_t limit1: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8;
-};
-
-static const struct seg_desc KERNEL_CODE_SEG = {
-	.limit0 = 0xFFFF,
-	.base0 = 0,
-	.base1 = 0,
-	.type = 11,
-	.s = 1,
-	.dpl = 0,
-	.p = 1,
-	.limit1 = 0xF,
-	.avl = 0,
-	.l = 1,
-	.d = 0,
-	.g = 1,
-	.base2 = 0,
-};
-
-static const struct seg_desc DATA_SEG = {
-	.limit0 = 0xFFFF,
-	.base0 = 0,
-	.base1 = 0,
-	.type = 0x2 | 0x1,
-	.s = 1,
-	.dpl = 0,
-	.p = 1,
-	.limit1 = 0xF,
-	.avl = 0,
-	.l = 1,
-	.d = 0,
-	.g = 1,
-	.base2 = 0,
-};
-
-static struct kvm_segment seg_from_desc(struct seg_desc e, uint32_t idx)
-{
-	struct kvm_segment res = {
-		.base = e.base0 | ((uint64_t)e.base1 << 16) | ((uint64_t)e.base2 << 24),
-		.limit = (uint64_t)e.limit0 | ((uint64_t)e.limit1 << 16),
-		.selector = idx * 8,
-		.type = e.type,
-		.present = e.p,
-		.dpl = e.dpl,
-		.db = e.d,
-		.s = e.s,
-		.l = e.l,
-		.g = e.g,
-		.avl = e.avl,
-		.padding = 0,
-		.unusable = 0,
-	};
-
-	return res;
-}
-
-static void init_gdt(void *mem, struct kvm_sregs *sregs)
-{
-	void *gdt_addr = mem + GDT_OFFSET;
-
-	memset(gdt_addr, 0, 8);
-	memcpy(gdt_addr + 8, &KERNEL_CODE_SEG, 8);
-	memcpy(gdt_addr + 16, &DATA_SEG, 8);
-
-	sregs->gdt.base = GDT_OFFSET + GUEST_INFO_START;
-	sregs->gdt.limit = 3 * 8 - 1;
-	memset(mem + IDT_OFFSET + GUEST_INFO_START, 0, 8);
-	sregs->idt.base = IDT_OFFSET + GUEST_INFO_START;
-	sregs->idt.limit = 7;
-	sregs->cr0 |= 1;
-	sregs->efer |= 0x100 | 0x400;
-	sregs->cs = seg_from_desc(KERNEL_CODE_SEG, 1);
-	sregs->ds = seg_from_desc(DATA_SEG, 2);
-	sregs->ss = seg_from_desc(DATA_SEG, 2);
-	sregs->es = seg_from_desc(DATA_SEG, 2);
-	sregs->fs = seg_from_desc(DATA_SEG, 2);
-	sregs->gs = seg_from_desc(DATA_SEG, 2);
-}
+#include "descriptors.h"
 
 static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
 {
@@ -129,44 +38,16 @@ static void print_nbytes(uint8_t *addr, size_t count)
 	printf("\n");
 }
 
-void print_seg(struct seg_desc *desc)
-{
-	printf("Base0: %x base1: %x base2: %x\n", desc->base0, desc->base1,
-		desc->base2);
-	printf("Limit0: %d limit1: %d\n", desc->limit0, desc->limit1);
-	printf("Type: %x\n", desc->type);
-	printf("S: %x\n", desc->s);
-	printf("DPL: %d\n", desc->dpl);
-	printf("P: %d\n", desc->p);
-	printf("AVL: %d\n", desc->avl);
-	printf("L: %d\n", desc->l);
-	printf("D: %d\n", desc->d);
-	printf("G: %d\n", desc->g);
-}
-
 static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sregs)
 {
 	struct elf64_program *program;
 	struct elf_vm_info res = { 0 };
 	size_t i, n = 1, pages_count;
-	struct addr_pair mem;
+	struct alloc_result mem;
 	int err;
 	void *stuff;
 
-	struct kvm_userspace_memory_region sregion = {0};
-	stuff = mmap(NULL, 0x5000, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-	sregion.slot = 0;
-	sregion.guest_phys_addr = GUEST_INFO_START;
-	sregion.memory_size = 0x5000;
-	sregion.userspace_addr = (uint64_t) stuff;
-	memset(stuff, 0, 0x5000);
-	init_gdt(stuff, sregs);
-
-	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &sregion);
-	if (err) {
-		printf("Failed to create memregion1: %d\n", err);
-		exit(-1);
-	}
+	init_gdt(sregs);
 	program = parse_elf(fname);
 	if (!program) {
 		printf("Failed to parse elf!\n");
@@ -190,14 +71,22 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	return res;
 }
 
+static uint64_t alloc_stack(void)
+{
+	struct alloc_result stack = alloc_pages_mapped(2);
+
+	return stack.guest + stack.size - 8;
+}
+
 int start_vm(char *fname)
 {
 	int kvm, vmfd, vcpufd;
-	void *segments[5];
 	struct kvm_sregs sregs;
 	struct kvm_run *run;
 	size_t mmap_size;
+	struct elf_vm_info info;
 	int ret;
+	uint64_t stack_addr;
 
 	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
 	ret = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
@@ -214,8 +103,7 @@ int start_vm(char *fname)
 	ioctl(vcpufd, KVM_GET_SREGS, &sregs);
 	init_page_tables(vmfd);
 
-	map_range(GUEST_INFO_START, GUEST_INFO_START, 5);
-	struct elf_vm_info info = load_elf(fname, vmfd, &sregs);
+	info = load_elf(fname, vmfd, &sregs);
 	printf("===PAGE TABLE STUFF===\n");
 	print_page_mapping();
 	printf("===PAGE TABLE STUFF===\n");
@@ -225,10 +113,11 @@ int start_vm(char *fname)
 	mmap_size = ioctl(kvm, KVM_GET_VCPU_MMAP_SIZE, NULL);
 	run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);	
 	printf("Starting ELF at 0x%lx...\n", info.start_addr);
+	stack_addr = alloc_stack();
 	struct kvm_regs regs = {
 		.rip = info.start_addr,
-		.rsp = STACK_START,
-		.rbp = STACK_START,
+		.rsp = stack_addr,
+		.rbp = stack_addr,
 		.rflags = 0x02,
 	};
 	ioctl(vcpufd, KVM_SET_REGS, &regs);
