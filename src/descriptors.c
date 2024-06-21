@@ -3,11 +3,10 @@
 #include "descriptors.h"
 #include "page.h"
 
-#define SEG_SIZE 0x1000
 #define GDT_OFFSET 0x500
 #define IDT_OFFSET 0x520
 
-static const struct seg_desc KERNEL_CODE_SEG = {
+static const struct seg_desc CODE_SEG = {
 	.limit0 = 0xFFFF,
 	.base0 = 0,
 	.base1 = 0,
@@ -65,6 +64,9 @@ void init_gdt(struct kvm_sregs *sregs)
 	struct alloc_result mem = alloc_pages_mapped(1);
 	void *gdt_addr = (void *)(mem.host + GDT_OFFSET);
 
+	struct kvm_segment code_segment = seg_from_desc(CODE_SEG, 1);
+	struct kvm_segment data_segment = seg_from_desc(DATA_SEG, 2);
+
 	memset(gdt_addr, 0, 8);
 	memcpy(gdt_addr + 8, &KERNEL_CODE_SEG, 8);
 	memcpy(gdt_addr + 16, &DATA_SEG, 8);
@@ -76,12 +78,12 @@ void init_gdt(struct kvm_sregs *sregs)
 	sregs->idt.limit = 7;
 	sregs->cr0 |= 1;
 	sregs->efer |= 0x100 | 0x400;
-	sregs->cs = seg_from_desc(KERNEL_CODE_SEG, 1);
-	sregs->ds = seg_from_desc(DATA_SEG, 2);
-	sregs->ss = seg_from_desc(DATA_SEG, 2);
-	sregs->es = seg_from_desc(DATA_SEG, 2);
-	sregs->fs = seg_from_desc(DATA_SEG, 2);
-	sregs->gs = seg_from_desc(DATA_SEG, 2);
+	sregs->cs = code_segment;
+	sregs->ds = data_segment;
+	sregs->ss = data_segment;
+	sregs->es = data_segment;
+	sregs->fs = data_segment;
+	sregs->gs = data_segment;
 }
 
 void print_seg(struct seg_desc *desc)
