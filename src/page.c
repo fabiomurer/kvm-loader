@@ -161,5 +161,7 @@ static void follow_addr(pt_addr addr, int level)
 
 void print_page_mapping(void)
 {
+	printf("===PAGE TABLE STUFF===\n");
 	follow_addr(pml4t_addr.guest, 0);
+	printf("===PAGE TABLE STUFF===\n");
 }

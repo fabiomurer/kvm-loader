@@ -38,7 +38,7 @@ static void print_nbytes(uint8_t *addr, size_t count)
 	printf("\n");
 }
 
-static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sregs)
+static struct elf_vm_info load_elf(char *fname, int vmfd)
 {
 	struct elf64_program *program;
 	struct elf_vm_info res = { 0 };
@@ -47,7 +47,6 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 	int err;
 	void *stuff;
 
-	init_gdt(sregs);
 	program = parse_elf(fname);
 	if (!program) {
 		printf("Failed to parse elf!\n");
@@ -63,7 +62,6 @@ static struct elf_vm_info load_elf(char *fname, int vmfd, struct kvm_sregs *sreg
 		mem = alloc_pages_from_mpt(pages_count);
 		map_range(sh->p_vaddr, mem.guest, pages_count);
 		read_from_file((void *)mem.host, fname, sh->p_offset, sh->p_filesz);
-		//print_nbytes(mem + (sh->p_vaddr - 0x400000), sh->p_filesz);
 	}
 	res.start_addr = program->elf_header->e_entry;
 
@@ -78,56 +76,56 @@ static uint64_t alloc_stack(void)
 	return stack.guest + stack.size - 8;
 }
 
-int start_vm(char *fname)
+static int setup_sregs(int vcpufd, int vmfd)
 {
-	int kvm, vmfd, vcpufd;
 	struct kvm_sregs sregs;
-	struct kvm_run *run;
-	size_t mmap_size;
-	struct elf_vm_info info;
-	int ret;
-	uint64_t stack_addr;
+	int err;
 
-	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-	ret = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
-	if (ret == -1) {
-		printf("KVM_CHECK_EXTENSION is not available\n");
-		return -1;
+	err = ioctl(vcpufd, KVM_GET_SREGS, &sregs);
+	if (err) {
+		printf("Failed to get sregs: %d\n", err);
+		return err;
 	}
-	if (!ret) {
-		printf("KVM_CAP_USER_MEMORY is not available\n");
-		return -1;
-	}
-	vmfd = ioctl(kvm, KVM_CREATE_VM, (unsigned long)0);
-	vcpufd = ioctl(vmfd, KVM_CREATE_VCPU, (unsigned long)0);
-	ioctl(vcpufd, KVM_GET_SREGS, &sregs);
-	init_page_tables(vmfd);
 
-	info = load_elf(fname, vmfd, &sregs);
-	printf("===PAGE TABLE STUFF===\n");
-	print_page_mapping();
-	printf("===PAGE TABLE STUFF===\n");
+	init_gdt(&sregs);
 	setup_paging(&sregs);
-	ioctl(vcpufd, KVM_SET_SREGS, &sregs);
+	err = ioctl(vcpufd, KVM_SET_SREGS, &sregs);
+	if (err)
+		printf("Failed to set sregs: %d\n", err);
 
-	mmap_size = ioctl(kvm, KVM_GET_VCPU_MMAP_SIZE, NULL);
-	run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);	
-	printf("Starting ELF at 0x%lx...\n", info.start_addr);
-	stack_addr = alloc_stack();
+	return err;
+}
+
+static int setup_regs(int vcpufd, uint64_t start_addr, uint64_t stack_addr)
+{
+	int err;
 	struct kvm_regs regs = {
-		.rip = info.start_addr,
+		.rip = start_addr,
 		.rsp = stack_addr,
 		.rbp = stack_addr,
 		.rflags = 0x02,
 	};
-	ioctl(vcpufd, KVM_SET_REGS, &regs);
+
+	err = ioctl(vcpufd, KVM_SET_REGS, &regs);
+	if (err)
+		printf("Failed to set regs: %d\n", err);
+	return err;
+}
+
+int vm_cycle(int kvm, int vcpufd)
+{
+	size_t mmap_size;
+	struct kvm_run *run;
+
+	mmap_size = ioctl(kvm, KVM_GET_VCPU_MMAP_SIZE, NULL);
+	run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);
+
 	while (1) {
 		ioctl(vcpufd, KVM_RUN, NULL);
 		switch (run->exit_reason) {
 		case KVM_EXIT_HLT:
 			printf("KVM_EXIT_HLT\n");
-			goto clean;
-			break;
+			return 0;
 		case KVM_EXIT_IO:
 			if (run->io.direction == KVM_EXIT_IO_OUT
 			    && run->io.port == 0x3f8)
@@ -143,15 +141,56 @@ int start_vm(char *fname)
 		case KVM_EXIT_INTERNAL_ERROR:
 			printf("KVM_EXIT_INTERNAL_ERROR: suberror = 0x%x\n",
 			     run->internal.suberror);
-			goto clean;
-			break;
+			return -1;
 		default:
 			printf("Odd exit reason: %d\n", run->exit_reason);
-			goto clean;
+			return -1;
 		}
 	}
+
+	return 0;
+}
+
+int start_vm(char *fname)
+{
+	int kvm, vmfd, vcpufd;
+	struct elf_vm_info info;
+	int ret;
+	uint64_t stack_addr;
+
+	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
+
+	ret = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
+	if (ret == -1) {
+		printf("KVM_CHECK_EXTENSION is not available\n");
+		return -1;
+	}
+	if (!ret) {
+		printf("KVM_CAP_USER_MEMORY is not available\n");
+		return -1;
+	}
+
+	vmfd = ioctl(kvm, KVM_CREATE_VM, (unsigned long)0);
+	vcpufd = ioctl(vmfd, KVM_CREATE_VCPU, (unsigned long)0);
+	init_page_tables(vmfd);
+
+	ret = setup_sregs(vcpufd, vmfd);
+	if (ret)
+		return ret;
+
+	info = load_elf(fname, vmfd);
+	stack_addr = alloc_stack();
+	print_page_mapping();
+	printf("Starting ELF at 0x%lx...\n", info.start_addr);
+
+	ret = setup_regs(vcpufd, info.start_addr, stack_addr);
+	if (ret)
+		return ret;
+
+	ret = vm_cycle(kvm, vcpufd);
 clean:
 	close(kvm);
+	return ret;
 }
 
 int main(int argc, char *argv[])
@@ -161,6 +200,5 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 	
-	start_vm(argv[1]);	
-	return 0;
+	return start_vm(argv[1]);
 }
