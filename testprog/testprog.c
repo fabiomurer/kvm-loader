@@ -10,7 +10,7 @@ void print(char *s)
 
 int _start(void)
 {
-	print("Hello!");
+	print("Hello!\n");
 	asm("hlt");
 	return 0;
 }
