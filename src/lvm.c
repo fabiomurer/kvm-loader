@@ -28,16 +28,6 @@ struct elf_vm_info {
 	uint64_t start_addr;
 };
 
-static void print_nbytes(uint8_t *addr, size_t count)
-{
-	size_t i;
-
-	for (i = 0; i < count; i++) {
-		printf("%x ", addr[i]);
-	}
-	printf("\n");
-}
-
 static struct elf_vm_info load_elf(char *fname, int vmfd)
 {
 	struct elf64_program *program;
@@ -112,7 +102,7 @@ static int setup_regs(int vcpufd, uint64_t start_addr, uint64_t stack_addr)
 	return err;
 }
 
-int vm_cycle(int kvm, int vcpufd)
+static int vm_cycle(int kvm, int vcpufd)
 {
 	size_t mmap_size;
 	struct kvm_run *run;
@@ -151,7 +141,7 @@ int vm_cycle(int kvm, int vcpufd)
 	return 0;
 }
 
-int start_vm(char *fname)
+static int start_vm(char *fname)
 {
 	int kvm, vmfd, vcpufd;
 	struct elf_vm_info info;
