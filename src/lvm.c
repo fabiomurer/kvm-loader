@@ -13,6 +13,7 @@
 #include "elf.h"
 #include "page.h"
 #include "descriptors.h"
+#include "xen.h"
 
 static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
 {
@@ -62,6 +63,7 @@ static struct elf_vm_info load_elf(char *fname, int vmfd)
 static uint64_t alloc_stack(void)
 {
 	struct alloc_result stack = alloc_pages_mapped(2);
+	printf("Stack: %lx\n", stack.guest);
 
 	return stack.guest + stack.size - 8;
 }
@@ -120,6 +122,10 @@ static int vm_cycle(int kvm, int vcpufd)
 			if (run->io.direction == KVM_EXIT_IO_OUT
 			    && run->io.port == 0x3f8)
 				putchar(*(((char *)run) + run->io.data_offset));
+			else if (run->io.direction == KVM_EXIT_IO_OUT && run->io.port == 0x39) {
+				uint32_t num = *((uint32_t *)((uint8_t *)run + run->io.data_offset));
+				printf("Hypercall number: %d\n", num);
+			}
 			else {
 				printf("Unhandled KVM_EXIT_IO\n");
 			}
@@ -170,6 +176,7 @@ static int start_vm(char *fname)
 
 	info = load_elf(fname, vmfd);
 	stack_addr = alloc_stack();
+	init_hypercalls_page(0x2000);
 	print_page_mapping();
 	printf("Starting ELF at 0x%lx...\n", info.start_addr);
 

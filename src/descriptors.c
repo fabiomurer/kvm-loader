@@ -63,12 +63,13 @@ void init_gdt(struct kvm_sregs *sregs)
 {
 	struct alloc_result mem = alloc_pages_mapped(1);
 	void *gdt_addr = (void *)(mem.host + GDT_OFFSET);
+	printf("descriptors: %lx\n", mem.guest);
 
 	struct kvm_segment code_segment = seg_from_desc(CODE_SEG, 1);
 	struct kvm_segment data_segment = seg_from_desc(DATA_SEG, 2);
 
 	memset(gdt_addr, 0, 8);
-	memcpy(gdt_addr + 8, &KERNEL_CODE_SEG, 8);
+	memcpy(gdt_addr + 8, &CODE_SEG, 8);
 	memcpy(gdt_addr + 16, &DATA_SEG, 8);
 
 	sregs->gdt.base = GDT_OFFSET + mem.guest;
