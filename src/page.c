@@ -105,6 +105,7 @@ static pt_addr set_pte_flags(pt_addr e, uint64_t flags)
 
 int map_addr(uint64_t vaddr, uint64_t phys_addr)
 {
+	printf("Mapping %lx to %lx\n", vaddr, phys_addr);
 	size_t i = 0;
 	struct alloc_result cur_addr = pml4t_addr;
 	uint64_t ind[PAGE_TABLE_LEVELS] = {
@@ -122,6 +123,9 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 	for (i = 0; i < PAGE_TABLE_LEVELS; i++) {
 		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
 		if (i == PAGE_TABLE_LEVELS - 1) {
+			if (*g_a) {
+				printf("%lx Already mapped to %lx!\n", vaddr, *g_a);
+			}
 			// Last page. Just set it to the physicall address
 			*g_a = set_pte_flags((pt_addr)phys_addr, PAGE_PRESENT | PAGE_RW);
 			break;
@@ -139,17 +143,19 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 {
 	size_t mapped;
+	printf("Mapping range from %lx to %lx\n", vaddr, vaddr + pages_count * PAGE_SIZE);
 
-	for (mapped = 0; mapped <= pages_count; mapped++)
+	for (mapped = 0; mapped < pages_count; mapped++)
 		map_addr(vaddr + PAGE_SIZE * mapped, phys_addr + PAGE_SIZE * mapped);
 	return 0;
 }
 
 static void follow_addr(pt_addr addr, int level)
 {
+	size_t i = 0;
+
 	if (level == 4)
 		return;
-	size_t i = 0;
 	for (i = 0; i < PAGE_SIZE / PTE_ENTRY_SIZE; i++) {
 		pt_addr *p = (pt_addr *)(from_guest(addr).host + i * sizeof(pt_addr));
 		if (*p) {
