@@ -11,4 +11,7 @@ testprog:
 clean:
 	rm -rf ${OBJS} lvm
 
+clangd-config:
+	bear -- make
+
 .PHONY: all testprog clean

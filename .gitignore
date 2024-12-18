@@ -1,3 +1,6 @@
 *.o
 lvm
 tprog
+
+.cache/
+compile_commands.json
