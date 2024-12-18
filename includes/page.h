@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <linux/kvm.h>
 #define PAGE_SIZE 4096
+#define GUEST_PT_ADDR 0xA000
 #define pt_addr uint64_t
 
 struct alloc_result {

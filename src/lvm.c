@@ -14,6 +14,7 @@
 #include "page.h"
 #include "descriptors.h"
 #include "xen.h"
+#include "syscall.h"
 
 static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
 {
@@ -130,6 +131,27 @@ static int vm_cycle(int kvm, int vcpufd)
 				printf("Unhandled KVM_EXIT_IO\n");
 			}
 			break;
+		case KVM_EXIT_SHUTDOWN:
+			struct kvm_regs regs;
+			if (ioctl(vcpufd, KVM_GET_REGS, &regs) < 0) {
+				perror("KVM_GET_REGS");
+				exit(-1);
+			}
+
+			if (is_syscall(&regs, vcpufd)) {
+				syscall_handler(&regs, vcpufd);
+				
+				regs.rip += SYSCALL_OP_SIZE;
+
+				if (ioctl(vcpufd, KVM_SET_REGS, &regs) < 0) {
+					perror("KVM_GET_REGS");
+					exit(-1);
+				}
+			} else {
+				printf("unespected shutdown\n");
+				exit(-1);
+			}
+			break;
 		case KVM_EXIT_FAIL_ENTRY:
 			printf("KVM_EXIT_FAIL_ENTRY: 0x%lx\n",
 			     (uint64_t)run->fail_entry.hardware_entry_failure_reason);
@@ -176,7 +198,7 @@ static int start_vm(char *fname)
 
 	info = load_elf(fname, vmfd);
 	stack_addr = alloc_stack();
-	init_hypercalls_page(0x2000);
+	//init_hypercalls_page(0x2000);
 	print_page_mapping();
 	printf("Starting ELF at 0x%lx...\n", info.start_addr);
 

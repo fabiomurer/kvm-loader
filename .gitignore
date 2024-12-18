@@ -1,6 +1,7 @@
 *.o
 lvm
 tprog
+tprog_syscall
 
 .cache/
 compile_commands.json

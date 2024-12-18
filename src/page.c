@@ -5,13 +5,12 @@
 #include "elf.h"
 #include "page.h"
 
-#define GUEST_PT_ADDR 0xA000
 #define MPT_COUNT_PAGES 0x100
 #define PAGE_TABLES_SIZE (PAGE_SIZE * MPT_COUNT_PAGES)
 #define PAGE_TABLES_SLOT 2
 #define PTE_ENTRY_SIZE 8
 
-static void *mpt;
+void *mpt;
 static int init_page_table_space(int vmfd)
 {
 	int err;
