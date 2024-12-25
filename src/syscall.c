@@ -38,7 +38,7 @@ bool is_syscall(struct kvm_regs* regs, int vcpufd) {
 }
 
 
-void syscall_handler(struct kvm_regs* regs, int vcpufd) {
+u_int64_t syscall_handler(struct kvm_regs* regs, int vcpufd) {
 	u_int64_t sysno = regs->rax;
 	u_int64_t arg1 = regs->rdi;
 	u_int64_t arg2 = regs->rsi;
@@ -74,6 +74,8 @@ void syscall_handler(struct kvm_regs* regs, int vcpufd) {
 		default:
 			printf("ENOSYS, syscall number %d\n", (int)sysno);
 			ret = -ENOSYS;
+			sysno = ENOSYS; // return syscall not recognised
 	}
 	regs->rax = ret;
+	return sysno;
 }

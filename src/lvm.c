@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include <sys/ioctl.h>
 #include <stdint.h>
@@ -13,8 +14,8 @@
 #include "elf.h"
 #include "page.h"
 #include "descriptors.h"
-#include "xen.h"
 #include "syscall.h"
+#include "vcpuinfo.h"
 
 static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
 {
@@ -139,7 +140,11 @@ static int vm_cycle(int kvm, int vcpufd)
 			}
 
 			if (is_syscall(&regs, vcpufd)) {
-				syscall_handler(&regs, vcpufd);
+				
+				if (syscall_handler(&regs, vcpufd) == ENOSYS) {
+					printf("syscall num: %lld not supported\n", regs.rax);
+					exit(-1);
+				}
 				
 				regs.rip += SYSCALL_OP_SIZE;
 
@@ -149,6 +154,7 @@ static int vm_cycle(int kvm, int vcpufd)
 				}
 			} else {
 				printf("unespected shutdown\n");
+				vcpu_events_logs(kvm, vcpufd);
 				exit(-1);
 			}
 			break;
