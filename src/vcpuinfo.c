@@ -66,6 +66,25 @@ void vcpu_events_logs(int kvm, int vcpufd) {
         events.exception_has_payload,
         (void*)events.exception_payload
     );
+
+    printf("flags: %X\n", events.flags);
+    if (events.flags & KVM_VCPUEVENT_VALID_SHADOW) {
+        printf("\tKVM_VCPUEVENT_VALID_SHADOW\n");
+    }
+    if (events.flags & KVM_VCPUEVENT_VALID_SMM) {
+        printf("\tKVM_VCPUEVENT_VALID_SMM\n");
+    }
+    if (events.flags & KVM_VCPUEVENT_VALID_PAYLOAD) {
+        printf("\tKVM_VCPUEVENT_VALID_PAYLOAD\n");
+    }
+    if (events.flags & KVM_VCPUEVENT_VALID_TRIPLE_FAULT) {
+        printf("\tKVM_VCPUEVENT_VALID_TRIPLE_FAULT\n");
+    }
+
+    printf(
+        "triple fault:\n\t"
+        "pending: %d\n", events.triple_fault.pending
+    );
 }
 
 void vcpu_regs_log(int kvm, int vcpufd) {
