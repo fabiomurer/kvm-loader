@@ -56,7 +56,7 @@ void vcpu_events_logs(int kvm, int vcpufd) {
         "pending: %d\n\t"
         "error_code: %d\n\t"
         "exception_has_payload: %d\n\t"
-        "exception_payload: %p\n\t",
+        "exception_payload: %p\n",
         events.exception.injected,
         events.exception.nr,
         exceptions_names[events.exception.nr],
@@ -66,6 +66,18 @@ void vcpu_events_logs(int kvm, int vcpufd) {
         events.exception_has_payload,
         (void*)events.exception_payload
     );
+}
 
+void vcpu_regs_log(int kvm, int vcpufd) {
+    struct kvm_regs regs;
+	if (ioctl(vcpufd, KVM_GET_REGS, &regs) < 0) {
+		perror("KVM_GET_REGS");
+		exit(-1);
+	}
 
+    printf(
+        "regs\n\t"
+        "RIP: %p\n",
+        (void*)regs.rip    
+    );
 }

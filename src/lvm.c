@@ -155,6 +155,7 @@ static int vm_cycle(int kvm, int vcpufd)
 			} else {
 				printf("unespected shutdown\n");
 				vcpu_events_logs(kvm, vcpufd);
+				vcpu_regs_log(kvm, vcpufd);
 				exit(-1);
 			}
 			break;
