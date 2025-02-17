@@ -10,15 +10,19 @@ static const struct seg_desc CODE_SEG = {
 	.limit0 = 0xFFFF,
 	.base0 = 0,
 	.base1 = 0,
-	.type = 11,
-	.s = 1,
-	.dpl = 0,
-	.p = 1,
+	.type = (
+		TYPE_A_ACCES_DONTSET | 
+		TYPE_RW_CODE_READ | 
+		TYPE_DC_CODE_EXEC_IFDLP | 
+		TYPE_E_CODE),
+	.s = S_DATA_OR_CODE,
+	.dpl = DLP_KERNEL,
+	.p = P_VALID,
 	.limit1 = 0xF,
-	.avl = 0,
-	.l = 1,
-	.d = 0,
-	.g = 1,
+	.avl = AVL,
+	.l = L_LONGMODE_CODE,
+	.d = D_LONGMODE,
+	.g = G_4KIB,
 	.base2 = 0,
 };
 
@@ -27,14 +31,18 @@ static const struct seg_desc DATA_SEG = {
 	.base0 = 0,
 	.base1 = 0,
 	.type = 0x2 | 0x1,
-	.s = 1,
-	.dpl = 0,
-	.p = 1,
-	.limit1 = 0xF,
-	.avl = 0,
-	.l = 1,
-	.d = 0,
-	.g = 1,
+	.s = S_DATA_OR_CODE,
+	.dpl = DLP_KERNEL,
+	.p = P_VALID,
+	.limit1 = (
+		TYPE_A_ACCES_DONTSET |
+		TYPE_RW_DATA_WRITE |
+		TYPE_E_DATA
+	),
+	.avl = AVL,
+	.l = L_OTHER, // era L_LONGMODE_CODE ??
+	.d = D_LONGMODE,
+	.g = G_4KIB,
 	.base2 = 0,
 };
 
@@ -71,8 +79,9 @@ void init_gdt(struct kvm_sregs *sregs)
 
 	// null descriptor
 	memset(gdt_addr, 0, 8);
-	
+	// one code segment 
 	memcpy(gdt_addr + 8, &CODE_SEG, 8);
+	// one data segment
 	memcpy(gdt_addr + 16, &DATA_SEG, 8);
 
 	sregs->gdt.base = GDT_OFFSET + mem.guest;

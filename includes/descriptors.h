@@ -39,11 +39,34 @@ Types available in Long Mode:
 ## flags
 - avl reserved
 - l long mode flag if 1 defines a 64-bit code segment, When set, DB = 0, other type of segment = 0
-- DB size flag 0 16 bit segment 1 32 bit segment 
+- d (DB) size flag 0 16 bit segment 1 32 bit segment 
 - G If 0, the Limit is in 1 Byte blocks. If 1, the Limit is in 4 KiB blocks
 
 - base2
 */
+
+#define S_DATA_OR_CODE 0b1
+#define S_SYSTEM 0b0
+#define DLP_KERNEL 0b00
+#define DLP_USER 0b11
+#define P_VALID 0b1
+#define P_INVALID 0b0
+#define L_LONGMODE_CODE 0b1
+#define L_OTHER 0b0
+#define D_LONGMODE 0b0
+#define G_4KIB 0b1
+
+#define TYPE_A_ACCES_DONTSET 0b1
+#define TYPE_RW_CODE_READ 0b10
+#define TYPE_RW_DATA_WRITE 0b10
+#define TYPE_DC_DATA_DIRECTION_UP 0b000
+#define TYPE_DC_CODE_EXEC_IFDLP 0b000
+#define TYPE_E_CODE 0b1000
+#define TYPE_E_DATA 0b0000
+
+// reserved
+#define AVL 0
+
 struct __attribute__((packed)) seg_desc {
 	uint16_t limit0;
 	uint16_t base0;
