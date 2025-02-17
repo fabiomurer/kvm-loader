@@ -116,6 +116,9 @@ static int vm_cycle(int kvm, int vcpufd)
 
 	while (1) {
 		ioctl(vcpufd, KVM_RUN, NULL);
+
+		printf("exit reason: %d\n", run->exit_reason);
+
 		switch (run->exit_reason) {
 		case KVM_EXIT_HLT:
 			printf("KVM_EXIT_HLT\n");
@@ -155,6 +158,7 @@ static int vm_cycle(int kvm, int vcpufd)
 			} else {
 				printf("unespected shutdown\n");
 				vcpu_events_logs(kvm, vcpufd);
+				vcpu_regs_log(kvm, vcpufd);
 				exit(-1);
 			}
 			break;

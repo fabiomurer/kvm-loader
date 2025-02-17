@@ -8,8 +8,11 @@ lvm: $(OBJS)
 %.o: %.c
 	gcc ${CFLAGS} -o $@ -c $<
 
-testprog:
-	gcc -fno-pie -no-pie testprog/testprog.c -o tprog -nostdlib
+testprog: testprog/testprog.c testprog/testprog_syscall.c
+	gcc -static testprog/testprog.c -o tprog_static_pie
+	gcc -fno-pie -no-pie -static testprog/testprog.c -o tprog_static
+	gcc testprog/testprog.c -o tprog_dynamic
+	gcc -fno-pie -no-pie testprog/testprog.c -o tprog_dynamic_pie
 	gcc -fno-pie -no-pie testprog/testprog_syscall.c -o tprog_syscall -nostdlib
 
 clean:
