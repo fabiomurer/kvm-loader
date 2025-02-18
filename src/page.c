@@ -1,3 +1,5 @@
+#include <stdbool.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
@@ -37,6 +39,14 @@ static int init_page_table_space(int vmfd)
 // first empty page
 static size_t page_num = 0;
 
+
+#define ALLOC_FAILED ((struct alloc_result){ .size = 0, .host = 0, .guest = 0 })
+
+bool is_mapped_failed(struct alloc_result* mem) {
+	if ((mem->host == 0) && (mem->guest == 0)) return true;
+	else return false;
+}
+
 // reserve memory in the mpt
 struct alloc_result alloc_pages_from_mpt(size_t page_count)
 {
@@ -47,7 +57,7 @@ struct alloc_result alloc_pages_from_mpt(size_t page_count)
 
 	// not enought free pages, dont alloc
 	if (page_num + page_count >= MPT_COUNT_PAGES)
-		return (struct alloc_result){ .host = 0, .guest = 0 };
+		return ALLOC_FAILED;
 
 	// pages now are used
 	page_num += page_count;
@@ -169,6 +179,24 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 	return 0;
 }
 
+#define ALIGN		(PAGE_SIZE - 1)
+// 4096 -> 8192 (4096*2)
+#define ROUND_PG(x)	(((x) + (ALIGN)) & ~(ALIGN))
+// 4095 -> 0
+#define TRUNC_PG(x)	((x) & ~(ALIGN))
+
+// simirla to mmap(vaddr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+struct alloc_result map_guest_memory(uint64_t guest_vaddr, ssize_t length) {
+	
+	ssize_t pages_count = (length / PAGE_SIZE) + 1;
+
+	struct alloc_result mem = alloc_pages_from_mpt(pages_count);
+	
+	if (!is_mapped_failed(&mem)) 
+		map_range(guest_vaddr, mem.guest, pages_count);
+	
+	return mem;
+}
 
 // debugging and info
 
