@@ -67,9 +67,34 @@ static struct kvm_segment seg_from_desc(struct seg_desc e, uint32_t idx)
 	return res;
 }
 
+#define CRO_PROTECTED_MODE 0b1
+
+/*
+bit 10
+
+Description: Indicates whether long mode is active. This bit is read-only and is set by the processor when entering long mode.
+- Values:
+	- 0: Long mode is not active
+	- 1: Long mode is active
+*/
+#define EFER_LONG_MODE_ACTIVE 0b100000000
+
+/*
+bit 11
+
+Description: Enables the no-execute page protection feature, which prevents code execution from data pages.
+
+- Values:
+    -0: No-execute page protection is disabled
+    - 1: No-execute page protection is enabled
+*/
+#define EFER_NO_EXECUTE_ENABLE 0b10000000000
+
+
 // https://wiki.osdev.org/GDT_Tutorial
 void init_gdt(struct kvm_sregs *sregs)
 {
+	// alloc one page for GDT (used) IDT (not used)
 	struct alloc_result mem = alloc_pages_mapped(1);
 	void *gdt_addr = (void *)(mem.host + GDT_OFFSET);
 	printf("descriptors: %lx\n", mem.guest);
@@ -84,18 +109,32 @@ void init_gdt(struct kvm_sregs *sregs)
 	// one data segment
 	memcpy(gdt_addr + 16, &DATA_SEG, 8);
 
+	// start address of gdt in guest
 	sregs->gdt.base = GDT_OFFSET + mem.guest;
+	// size of the table (2 entry, 1 null)
 	sregs->gdt.limit = 3 * 8 - 1;
+
+	// IDT (interrupt description table) initialization, all null not used
 	memset((void *)(mem.host + IDT_OFFSET), 0, 8);
+	// start address of IDT in guest
 	sregs->idt.base = IDT_OFFSET + mem.guest;
+	// IDT size (one null)
 	sregs->idt.limit = 7;
-	sregs->cr0 |= 1;
-	sregs->efer |= 0x100 | 0x400;
+	sregs->cr0 |= CRO_PROTECTED_MODE;
+	sregs->efer |= EFER_LONG_MODE_ACTIVE | EFER_NO_EXECUTE_ENABLE;
+	
+	// initialize segments for long mode
+	// code segment
 	sregs->cs = code_segment;
+	// data segment
 	sregs->ds = data_segment;
+	// stack segment
 	sregs->ss = data_segment;
+	// additional data and string operation 
 	sregs->es = data_segment;
+	// thread-specific data structures
 	sregs->fs = data_segment;
+	// thread-specific data structures
 	sregs->gs = data_segment;
 }
 
