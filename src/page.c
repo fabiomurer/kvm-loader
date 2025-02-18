@@ -2,7 +2,6 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <string.h>
-#include "elf.h"
 #include "page.h"
 
 #define MPT_COUNT_PAGES 0x100
@@ -10,7 +9,10 @@
 #define PAGE_TABLES_SLOT 2
 #define PTE_ENTRY_SIZE 8
 
+// page table start address in host
 void *mpt;
+
+// alloc memory for host
 static int init_page_table_space(int vmfd)
 {
 	int err;
@@ -26,22 +28,30 @@ static int init_page_table_space(int vmfd)
 
 	err = ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, &region);
 	if (err) {
-		printf("Failed to create region for page tables\n");
+		perror("Failed to create region for page tables\n");
 		return -1;
 	}
+	return 0;
 }
 
+// first empty page
 static size_t page_num = 0;
 
+// reserve memory in the mpt
 struct alloc_result alloc_pages_from_mpt(size_t page_count)
 {
+	// start address of free page in host
 	pt_addr res_host = (uint64_t)mpt + PAGE_SIZE * page_num;
+	// start address of free page in guest
 	pt_addr res_guest = GUEST_PT_ADDR + PAGE_SIZE * page_num;
 
+	// not enought free pages, dont alloc
 	if (page_num + page_count >= MPT_COUNT_PAGES)
 		return (struct alloc_result){ .host = 0, .guest = 0 };
 
+	// pages now are used
 	page_num += page_count;
+	// initialize mem to 0
 	memset((void *)res_host, 0, PAGE_SIZE * page_count);
 
 	struct alloc_result res = {
@@ -59,10 +69,12 @@ struct alloc_result alloc_pages_mapped(size_t page_count)
 	return res;
 }
 
+// first page level
 static struct alloc_result pml4t_addr;
 void init_page_tables(int vmfd)
 {
 	init_page_table_space(vmfd);
+	// first page is for plm4
 	pml4t_addr = alloc_pages_from_mpt(1);
 }
 
@@ -102,6 +114,7 @@ static pt_addr set_pte_flags(pt_addr e, uint64_t flags)
 	return (pt_addr) ((uint64_t)e | flags);
 }
 
+// set 4 level page table for address translation
 int map_addr(uint64_t vaddr, uint64_t phys_addr)
 {
 	printf("Mapping %lx to %lx\n", vaddr, phys_addr);
@@ -114,14 +127,19 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 		(vaddr & _AC(0x1FF000, ULL)) >> SHIFT_LVL_3,
 	};
 
+	// if not alligned
 	if (vaddr % PAGE_SIZE != 0)
 		return -1;
 	if (phys_addr % PAGE_SIZE != 0)
 		return -1;
 	
+	// map page walk
 	for (i = 0; i < PAGE_TABLE_LEVELS; i++) {
 		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
+		
+		// if last level
 		if (i == PAGE_TABLE_LEVELS - 1) {
+			// is alredy mapped (not 0)
 			if (*g_a) {
 				printf("%lx Already mapped to %lx!\n", vaddr, *g_a);
 			}
@@ -129,6 +147,7 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 			*g_a = set_pte_flags((pt_addr)phys_addr, PAGE_PRESENT | PAGE_RW);
 			break;
 		}
+		// if the part of the current level is not mapped, map it
 		if (!*g_a) {
 			printf("Allocating level %zu\n", i);
 			*g_a = set_pte_flags(alloc_pages_from_mpt(1).guest, PAGE_PRESENT | PAGE_RW);
@@ -139,6 +158,7 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 	return 0;
 }
 
+// intruct mmu where to find pages
 int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 {
 	size_t mapped;
@@ -148,6 +168,9 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 		map_addr(vaddr + PAGE_SIZE * mapped, phys_addr + PAGE_SIZE * mapped);
 	return 0;
 }
+
+
+// debugging and info
 
 static void follow_addr(pt_addr addr, int level)
 {
