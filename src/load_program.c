@@ -3,15 +3,28 @@
 #include "load_linux.h"
 
 #include <asm/kvm.h>
+#include <signal.h>
 #include <linux/kvm.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/user.h>
+#include <sys/wait.h>
 
 struct kvm_regs load_program(char** argv) {
     struct user_regs_struct user_regs = {0};
     pid_t pid = load_linux(argv, &user_regs);
 
     linux_to_kvm_map(pid);
+
+    // kill traced process
+    if (kill(pid, SIGKILL) == -1) {
+        perror("kill");
+        exit(EXIT_FAILURE);
+    }
+    
+    int status;
+    waitpid(pid, &status, 0);
 
     struct kvm_regs kvm_regs = {
         .rax = user_regs.rax,

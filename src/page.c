@@ -187,8 +187,11 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 
 // simirla to mmap(vaddr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 struct alloc_result map_guest_memory(uint64_t guest_vaddr, ssize_t length) {
+
+	guest_vaddr = TRUNC_PG(guest_vaddr);
 	
-	ssize_t pages_count = (length / PAGE_SIZE) + 1;
+	ssize_t pages_count = (length / PAGE_SIZE);
+	
 
 	struct alloc_result mem = alloc_pages_from_mpt(pages_count);
 	

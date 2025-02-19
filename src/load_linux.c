@@ -84,10 +84,9 @@ pid_t load_linux(char** argv, struct user_regs_struct* user_regs) {
 
         // Replace the child process with the target program.
         // Note: We pass argv[0] as the program and &argv[0] as its arguments.
-        if (execvp(argv[0], &argv[0]) == -1) {
-            fprintf(stderr, "execvp failed: %s\n", strerror(errno));
-            exit(EXIT_FAILURE);
-        }
+        execvp(argv[0], &argv[0]);
+        perror("execvp");
+        exit(EXIT_FAILURE);
     } else {
         // Parent process.
         // Wait for child to stop (due to SIGSTOP from the child).
@@ -122,7 +121,7 @@ pid_t load_linux(char** argv, struct user_regs_struct* user_regs) {
             // disable VDSO
             remove_vdso(child);
             
-            if (ptrace(PTRACE_GETREGS, child, NULL, &user_regs) == -1) {
+            if (ptrace(PTRACE_GETREGS, child, NULL, user_regs) == -1) {
                 error_and_exit("ptrace(PTRACE_GETREGS)");
             } 
 

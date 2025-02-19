@@ -45,7 +45,6 @@ u_int64_t syscall_handler(struct kvm_regs* regs, int vcpufd) {
 	u_int64_t arg3 = regs->rdx;
 	u_int64_t ret = 0;
 
-	struct kvm_translation transl_addr;
 	switch (sysno) {
 		case __NR_write:
 			void* buf = vm_guest_to_host(arg2, vcpufd);
@@ -57,7 +56,7 @@ u_int64_t syscall_handler(struct kvm_regs* regs, int vcpufd) {
 			printf("=======\n");
 
 			ret = write((int)arg1, (char*)buf, arg3);
-			if (ret < 0) {
+			if (ret == (u_int64_t)-1) {
 				perror("__NR_write");
 			} else {
 				printf("byte written: %lu\n", ret);
