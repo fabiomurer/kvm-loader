@@ -1,6 +1,6 @@
 SRC := $(shell ls -1 src/*.c)
 OBJS := $(SRC:c=o)
-CFLAGS := -Iincludes/
+CFLAGS := -O0 -g -Wall -Wextra -Iincludes/
 
 lvm: $(OBJS)
 	gcc -o lvm $(OBJS)

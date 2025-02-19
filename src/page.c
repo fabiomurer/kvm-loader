@@ -6,7 +6,7 @@
 #include <string.h>
 #include "page.h"
 
-#define MPT_COUNT_PAGES 0x100
+#define MPT_COUNT_PAGES 0x1000
 #define PAGE_TABLES_SIZE (PAGE_SIZE * MPT_COUNT_PAGES)
 #define PAGE_TABLES_SLOT 2
 #define PTE_ENTRY_SIZE 8

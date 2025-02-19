@@ -11,66 +11,13 @@
 #include <string.h>
 #include <stdbool.h>
 #include <limits.h>
-#include "elf.h"
+#include "load_program.h"
 #include "page.h"
 #include "descriptors.h"
 #include "syscall.h"
 #include "vcpuinfo.h"
 
-static void read_from_file(void *dst, char *fname, size_t offset, size_t len)
-{
-	int fd;
-
-	fd = open(fname, O_RDONLY);
-	lseek(fd, offset, 0);
-	read(fd, dst, len);
-	close(fd);
-}
-
-struct elf_vm_info {
-	uint64_t start_addr;
-};
-
-static struct elf_vm_info load_elf(char *fname, int vmfd)
-{
-	struct elf64_program *program;
-	struct elf_vm_info res = { 0 };
-	size_t i, n = 1, pages_count;
-	struct alloc_result mem;
-	int err;
-	void *stuff;
-
-	program = parse_elf(fname);
-	if (!program) {
-		printf("Failed to parse elf!\n");
-		return res;
-	}
-
-	for (i = 0; i < program->elf_header->e_phnum; i++) {
-		struct elf64_segment_hdr *sh = program->segment_headers[i];
-		if (sh->p_type != 0x01)
-			continue;
-		printf("Reading %lx bytes from %lx offset into the memory at addr %lx\n", sh->p_filesz, sh->p_offset, sh->p_vaddr);
-		pages_count = (sh->p_filesz + PAGE_SIZE - 1) / PAGE_SIZE;
-		mem = alloc_pages_from_mpt(pages_count);
-		map_range(sh->p_vaddr, mem.guest, pages_count);
-		read_from_file((void *)mem.host, fname, sh->p_offset, sh->p_filesz);
-	}
-	res.start_addr = program->elf_header->e_entry;
-
-	free_elf(program);
-	return res;
-}
-
-static uint64_t alloc_stack(void)
-{
-	struct alloc_result stack = alloc_pages_mapped(2);
-	printf("Stack: %lx\n", stack.guest);
-
-	return stack.guest + stack.size - 8;
-}
-
-static int setup_sregs(int vcpufd, int vmfd)
+static int setup_sregs(int vcpufd)
 {
 	struct kvm_sregs sregs;
 	int err;
@@ -87,22 +34,6 @@ static int setup_sregs(int vcpufd, int vmfd)
 	if (err)
 		printf("Failed to set sregs: %d\n", err);
 
-	return err;
-}
-
-static int setup_regs(int vcpufd, uint64_t start_addr, uint64_t stack_addr)
-{
-	int err;
-	struct kvm_regs regs = {
-		.rip = start_addr,
-		.rsp = stack_addr,
-		.rbp = stack_addr,
-		.rflags = 0x02,
-	};
-
-	err = ioctl(vcpufd, KVM_SET_REGS, &regs);
-	if (err)
-		printf("Failed to set regs: %d\n", err);
 	return err;
 }
 
@@ -179,12 +110,11 @@ static int vm_cycle(int kvm, int vcpufd)
 	return 0;
 }
 
-static int start_vm(char *fname)
+static int start_vm(char** argv)
 {
 	int kvm, vmfd, vcpufd;
-	struct elf_vm_info info;
+
 	int ret;
-	uint64_t stack_addr;
 
 	kvm = open("/dev/kvm", O_RDWR | O_CLOEXEC);
 
@@ -202,32 +132,32 @@ static int start_vm(char *fname)
 	vcpufd = ioctl(vmfd, KVM_CREATE_VCPU, (unsigned long)0);
 	init_page_tables(vmfd);
 
-	ret = setup_sregs(vcpufd, vmfd);
+	ret = setup_sregs(vcpufd);
 	if (ret)
 		return ret;
 
-	info = load_elf(fname, vmfd);
-	stack_addr = alloc_stack();
-	//init_hypercalls_page(0x2000);
+	struct kvm_regs regs = load_program(argv);
+
 	print_page_mapping();
-	printf("Starting ELF at 0x%lx...\n", info.start_addr);
-
-	ret = setup_regs(vcpufd, info.start_addr, stack_addr);
-	if (ret)
-		return ret;
+	
+	int err = ioctl(vcpufd, KVM_SET_REGS, &regs);
+	if (err) {
+		printf("Failed to set regs: %d\n", err);
+		exit(EXIT_FAILURE);
+	}
 
 	ret = vm_cycle(kvm, vcpufd);
-clean:
+
 	close(kvm);
 	return ret;
 }
 
 int main(int argc, char *argv[])
 {
-	if (argc != 2) {
+	if (argc < 2) {
 		printf("Usage: %s <filename>\n", argv[0]);
 		exit(-1);
 	}
 	
-	return start_vm(argv[1]);
+	return start_vm(&argv[1]);
 }
