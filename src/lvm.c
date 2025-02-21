@@ -1,3 +1,4 @@
+#include <asm/kvm.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -17,6 +18,19 @@
 #include "syscall.h"
 #include "vcpuinfo.h"
 
+void init_sse(struct kvm_sregs* sregs) {
+	/*
+	clear the CR0.EM bit (bit 2) [ CR0 &= ~(1 << 2) ]
+	set the CR0.MP bit (bit 1) [ CR0 |= (1 << 1) ]
+	set the CR4.OSFXSR bit (bit 9) [ CR4 |= (1 << 9) ]
+	set the CR4.OSXMMEXCPT bit (bit 10) [ CR4 |= (1 << 10) ]
+	*/
+	sregs->cr0 &= ~(1 << 2);
+	sregs->cr0 |= (1 << 1);
+	sregs->cr4 |= (1 << 9);
+	sregs->cr4 |= (1 << 10);
+}
+
 static int setup_sregs(int vcpufd)
 {
 	struct kvm_sregs sregs;
@@ -30,6 +44,7 @@ static int setup_sregs(int vcpufd)
 
 	init_gdt(&sregs);
 	setup_paging(&sregs);
+	init_sse(&sregs);
 	err = ioctl(vcpufd, KVM_SET_SREGS, &sregs);
 	if (err)
 		printf("Failed to set sregs: %d\n", err);
