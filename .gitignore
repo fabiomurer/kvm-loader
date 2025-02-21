@@ -1,11 +1,7 @@
 *.o
 lvm
-tprog
-tprog_syscall
-tprog_dynamic
-tprog_dynamic_pie
-tprog_static
-tprog_static_pie
+ssyscall
+stprog
 
 .cache/
 compile_commands.json
