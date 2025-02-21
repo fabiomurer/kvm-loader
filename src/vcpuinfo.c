@@ -143,8 +143,12 @@ void vcpu_regs_log(int kvm, int vcpufd) {
 
     printf(
         "regs\n\t"
-        "RIP: %p\n",
-        (void*)regs.rip    
+        "RIP: %p\n\t"
+        "RSP: %p\n\t"
+        "RFLAGS: 0x%llx\n",
+        (void*)regs.rip,
+        (void*)regs.rsp,
+        regs.rflags
     );
 
     u_int8_t* exec_inst_ptr = (u_int8_t*)vm_guest_to_host(regs.rip, vcpufd);

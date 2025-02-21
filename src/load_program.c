@@ -44,7 +44,7 @@ struct kvm_regs load_program(char** argv) {
         .r14 = user_regs.r14,
         .r15 = user_regs.r15,
         .rip = user_regs.rip,
-        .rflags = 0x02 // has to be 1 second bit 
+        .rflags = user_regs.eflags // TODO: controllare che non sovrascriva altri bit di rlfags (elfags sottotipo id rflags)
     };
 
 
