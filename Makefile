@@ -9,11 +9,11 @@ lvm: $(OBJS)
 	gcc ${CFLAGS} -o $@ -c $<
 
 testprog: testprog/testprog.c testprog/testprog_syscall.c
-	gcc -static testprog/testprog.c -o stprog
-	gcc -static -nostdlib testprog/testprog_syscall.c -o ssyscall
+	gcc -g -static testprog/testprog.c -o stprog
+	gcc -g -static -nostdlib testprog/testprog_syscall.c -o ssyscall
 
 clean:
-	rm -rf ${OBJS} lvm
+	rm -rf ${OBJS} lvm ./testprog/*
 
 clangd-config:
 	bear -- make

@@ -11,6 +11,12 @@
 #define PAGE_TABLES_SLOT 2
 #define PTE_ENTRY_SIZE 8
 
+#define ALIGN		(PAGE_SIZE - 1)
+// 4096 -> 8192 (4096*2)
+#define ROUND_PG(x)	(((x) + (ALIGN)) & ~(ALIGN))
+// 4095 -> 0
+#define TRUNC_PG(x)	((x) & ~(ALIGN))
+
 // page table start address in host
 void *mpt;
 
@@ -152,6 +158,7 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 			// is alredy mapped (not 0)
 			if (*g_a) {
 				printf("%lx Already mapped to %lx!\n", vaddr, *g_a);
+				return 0;
 			}
 			// Last page. Just set it to the physicall address
 			*g_a = set_pte_flags((pt_addr)phys_addr, PAGE_PRESENT | PAGE_RW);
@@ -168,6 +175,37 @@ int map_addr(uint64_t vaddr, uint64_t phys_addr)
 	return 0;
 }
 
+bool segment_already_mapped(uint64_t vaddr) {
+	size_t i = 0;
+
+	struct alloc_result cur_addr = pml4t_addr;
+	uint64_t ind[PAGE_TABLE_LEVELS] = {
+		(vaddr & _AC(0xff8000000000, ULL)) >> SHIFT_LVL_0,
+		(vaddr & _AC(0x7fc0000000, ULL)) >> SHIFT_LVL_1,
+		(vaddr & _AC(0x3fe00000, ULL)) >> SHIFT_LVL_2,
+		(vaddr & _AC(0x1FF000, ULL)) >> SHIFT_LVL_3,
+	};
+
+	// if not alligned
+	vaddr = TRUNC_PG(vaddr);
+	
+	// map page walk
+	for (i = 0; i < PAGE_TABLE_LEVELS; i++) {
+		pt_addr *g_a = (pt_addr *)(cur_addr.host + ind[i] * sizeof(pt_addr));
+		
+		// if last level
+		if (i == PAGE_TABLE_LEVELS - 1) {
+			if (*g_a) 	return true;
+			else 		return false;
+		}
+		// if the part of the current level is not mapped, page is not mapped
+		if (!*g_a) return false;
+
+		cur_addr = from_guest(*g_a);
+	}
+	return false;
+}
+
 // intruct mmu where to find pages
 int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 {
@@ -178,12 +216,6 @@ int map_range(pt_addr vaddr, pt_addr phys_addr, size_t pages_count)
 		map_addr(vaddr + PAGE_SIZE * mapped, phys_addr + PAGE_SIZE * mapped);
 	return 0;
 }
-
-#define ALIGN		(PAGE_SIZE - 1)
-// 4096 -> 8192 (4096*2)
-#define ROUND_PG(x)	(((x) + (ALIGN)) & ~(ALIGN))
-// 4095 -> 0
-#define TRUNC_PG(x)	((x) & ~(ALIGN))
 
 // simirla to mmap(vaddr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 struct alloc_result map_guest_memory(uint64_t guest_vaddr, ssize_t length) {

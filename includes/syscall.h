@@ -3,10 +3,13 @@
 
 #include <stdbool.h>
 #include <linux/kvm.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #define SYSCALL_OPCODE 0x0F05
 #define SYSCALL_OP_SIZE 2
+
+extern uint64_t vlinux_brk;
 
 void* vm_guest_to_host(u_int64_t guest_addr, int vcpufd);
 

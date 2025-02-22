@@ -1,4 +1,6 @@
+#include <asm/unistd_64.h>
 #include <linux/kvm.h>
+#include <stdint.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
@@ -12,6 +14,10 @@
 #include "page.h"
 
 extern void *mpt;
+
+// vlinux virtual linux
+
+uint64_t vlinux_brk;
 
 void* vm_guest_to_host(u_int64_t guest_addr, int vcpufd) {
 	struct kvm_translation transl_addr;
@@ -35,6 +41,36 @@ bool is_syscall(struct kvm_regs* regs, int vcpufd) {
 	} else {
 		return false;
 	}
+}
+
+u_int64_t vlinux_syscall_brk(u_int64_t addr) {
+	/*
+	the actual Linux system call returns the new program
+    break on success.  On failure, the system call returns the current
+    break.
+	*/
+	if (addr == 0) {
+		return vlinux_brk;
+	}
+
+	if (addr >= vlinux_brk) {
+		u_int64_t increment = (u_int64_t)addr - vlinux_brk;
+		
+		struct alloc_result mem = map_guest_memory(vlinux_brk, increment);
+		
+		if (is_mapped_failed(&mem)) {
+			fprintf(stderr, "brk failed\n");
+			return vlinux_brk;
+		} else {
+			vlinux_brk += increment;
+			return vlinux_brk;
+		}
+	} else {
+		// shrink with brk not supported
+		fprintf(stderr, "brk shrink not supported\n");
+	}
+
+	return vlinux_brk;
 }
 
 
@@ -61,6 +97,13 @@ u_int64_t syscall_handler(struct kvm_regs* regs, int vcpufd) {
 			} else {
 				printf("byte written: %lu\n", ret);
 			}
+			break;
+
+		case __NR_brk:
+			printf("=======__NR_brk\n");
+			printf("addr: %p\n", (void*)arg1);
+			printf("=======\n");
+			ret = vlinux_syscall_brk(arg1);
 			break;
 
 		case __NR_exit:

@@ -1,3 +1,4 @@
+#include "syscall.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <linux/limits.h>
@@ -341,6 +342,7 @@ pid_t load_linux(char** argv, struct user_regs_struct* user_regs) {
             struct linux_proc_info proc_info = {0};
             read_proc_info(child, &proc_info);
             printf("brk: %lx\n", proc_info.start_brk);
+            vlinux_brk = proc_info.start_brk;
             
             if (ptrace(PTRACE_GETREGS, child, NULL, user_regs) == -1) {
                 error_and_exit("ptrace(PTRACE_GETREGS)");
