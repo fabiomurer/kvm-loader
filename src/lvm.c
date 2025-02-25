@@ -25,10 +25,15 @@ void init_sse(struct kvm_sregs* sregs) {
 	set the CR4.OSFXSR bit (bit 9) [ CR4 |= (1 << 9) ]
 	set the CR4.OSXMMEXCPT bit (bit 10) [ CR4 |= (1 << 10) ]
 	*/
-	sregs->cr0 &= ~(1 << 2);
+	sregs->cr0 &= ~(1 << 2); // CR0_EM
+	sregs->cr0 &= ~(1 << 3); // CR0_TS
 	sregs->cr0 |= (1 << 1);
 	sregs->cr4 |= (1 << 9);
 	sregs->cr4 |= (1 << 10);
+
+	// avx
+	sregs->cr4 |= (1 << 18); // OS Support for XSAVE and related instructions. Indicates that the operating system can manage CPU extended states (e.g., for AVX).
+
 }
 
 static int setup_sregs(int vcpufd)

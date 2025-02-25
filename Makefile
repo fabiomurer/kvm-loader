@@ -13,7 +13,7 @@ testprog: testprog/testprog.c testprog/testprog_syscall.c
 	gcc -g -static -nostdlib testprog/testprog_syscall.c -o ssyscall
 
 clean:
-	rm -rf ${OBJS} lvm ./testprog/*
+	rm -rf ${OBJS} lvm stprog ssyscall
 
 clangd-config:
 	bear -- make
