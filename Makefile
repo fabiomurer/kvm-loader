@@ -1,11 +1,12 @@
 SRC := $(shell ls -1 src/*.c)
+LIBS := $(shell ls -1 includes/*.h)
 OBJS := $(SRC:c=o)
 CFLAGS := -O0 -g -Wall -Wextra -Iincludes/
 
 lvm: $(OBJS)
 	gcc -o lvm $(OBJS)
 
-%.o: %.c
+%.o: %.c %.h
 	gcc ${CFLAGS} -o $@ -c $<
 
 testprog: testprog/testprog.c testprog/testprog_syscall.c

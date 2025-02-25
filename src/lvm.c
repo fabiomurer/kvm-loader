@@ -36,6 +36,30 @@ void init_sse(struct kvm_sregs* sregs) {
 
 }
 
+#define XCR0_X87    (1ULL << 0)  // x87 FPU/MMX state (must be 1)
+#define XCR0_SSE    (1ULL << 1)  // SSE state
+#define XCR0_AVX    (1ULL << 2)  // AVX state
+
+void init_avx(int vcpufd) {
+	struct kvm_xcrs xcrs;
+	memset(&xcrs, 0, sizeof(xcrs));
+
+	// We're setting XCR0 register
+    xcrs.nr_xcrs = 1;
+	xcrs.flags = 0;
+    xcrs.xcrs[0].xcr = 0;  // XCR0 register
+    
+    // Enable x87 FPU, SSE, and AVX
+    // All three must be enabled for AVX to work
+    xcrs.xcrs[0].value = XCR0_X87 | XCR0_SSE | XCR0_AVX;
+    
+    // Apply the changes using KVM_SET_XCRS ioctl
+    if (ioctl(vcpufd, KVM_SET_XCRS, &xcrs) < 0) {
+        perror("KVM_SET_XCRS ioctl failed");
+        exit(EXIT_FAILURE);
+    }
+}
+
 static int setup_sregs(int vcpufd)
 {
 	struct kvm_sregs sregs;
@@ -50,6 +74,7 @@ static int setup_sregs(int vcpufd)
 	init_gdt(&sregs);
 	setup_paging(&sregs);
 	init_sse(&sregs);
+	init_avx(vcpufd);
 	err = ioctl(vcpufd, KVM_SET_SREGS, &sregs);
 	if (err)
 		printf("Failed to set sregs: %d\n", err);
