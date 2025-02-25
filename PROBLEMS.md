@@ -83,6 +83,59 @@ ymm15          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeat
     - Invalid Operation Mask
     - Denormals Are Zeros*
 
+## other
+
+
+### fctrl
+In the x86_64 architecture, `fctrl` in GDB refers to the Floating-Point Control Register (also known as the x87 FPU Control Word or FPUCW). This is not a general-purpose register but rather a special register that controls the behavior of the x87 floating-point unit.
+
+```
+Bits 15-13    12     11-10    9-8     7-6     5     4     3     2     1     0
+   Reserved   IC      RC      PC    Reserved  PM    UM    OM    ZM    DM    IM
+
+Where:
+
+    PC (Precision Control) - Bits 8-9:
+        00: Single precision (24 bits)
+        10: Double precision (53 bits)
+        11: Extended precision (64 bits)
+
+    RC (Rounding Control) - Bits 10-11:
+        00: Round to nearest (even)
+        01: Round down (toward -∞)
+        10: Round up (toward +∞)
+        11: Round toward zero (truncate)
+
+    Exception Mask Bits - Bits 0-5:
+        IM: Invalid Operation Mask
+        DM: Denormal Operand Mask
+        ZM: Zero Divide Mask
+        OM: Overflow Mask
+        UM: Underflow Mask
+        PM: Precision Mask
+
+When a bit is set (1), the corresponding exception is masked (ignored).
+```
+
+### ftag
+The ftag register in x86_64 architecture, as displayed in GDB, refers to the Floating-Point Tag Register. This is a component of the x87 FPU (Floating-Point Unit) that keeps track of the status of each of the eight floating-point registers (ST0-ST7).
+Overview of the ftag Register
+
+The ftag register is a 16-bit register that contains information about the content type stored in each x87 floating-point register. It allocates 2 bits per register to indicate its status.
+Register Structure
+Code
+
+```
+Bits: 15-14 13-12 11-10 9-8 7-6 5-4 3-2 1-0
+      ST7   ST6   ST5   ST4 ST3 ST2 ST1 ST0
+
+Each 2-bit field has the following encodings:
+
+    00: Valid - Register contains a valid floating-point value
+    01: Zero - Register contains a zero value (±0)
+    10: Special - Register contains a special value (NaN, infinity, denormal)
+    11: Empty - Register is empty
+```
 
 
 # glibc

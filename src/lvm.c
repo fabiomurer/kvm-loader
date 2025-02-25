@@ -151,13 +151,19 @@ static int start_vm(char** argv)
 	if (ret)
 		return ret;
 
-	struct kvm_regs regs = load_program(argv);
+	struct linux_cpu_state_kvm cpu_state = load_program(argv);
 
 	print_page_mapping();
 	
-	int err = ioctl(vcpufd, KVM_SET_REGS, &regs);
+	int err = ioctl(vcpufd, KVM_SET_REGS, &cpu_state.kvm_regs);
 	if (err) {
 		printf("Failed to set regs: %d\n", err);
+		exit(EXIT_FAILURE);
+	}
+
+	err = ioctl(vcpufd, KVM_SET_FPU, &cpu_state.kvm_fpu);
+	if (err) {
+		printf("Failed to set fpu: %d\n", err);
 		exit(EXIT_FAILURE);
 	}
 

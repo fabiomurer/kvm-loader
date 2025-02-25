@@ -2,4 +2,9 @@
 
 #include <linux/kvm.h>
 
-struct kvm_regs load_program(char** argv);
+struct linux_cpu_state_kvm {
+    struct kvm_regs kvm_regs;
+    struct kvm_fpu kvm_fpu;
+};
+
+struct linux_cpu_state_kvm load_program(char** argv);

@@ -1,3 +1,4 @@
+#include "load_linux.h"
 #include "syscall.h"
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -279,7 +280,7 @@ void remove_vdso(int pid) {
     }
 }
 
-pid_t load_linux(char** argv, struct user_regs_struct* user_regs) {
+pid_t load_linux(char** argv, struct user_regs_struct* user_regs, struct user_fpregs_struct* user_fpregs) {
     int status = 0;
     pid_t child = fork();
 
@@ -346,15 +347,11 @@ pid_t load_linux(char** argv, struct user_regs_struct* user_regs) {
             
             if (ptrace(PTRACE_GETREGS, child, NULL, user_regs) == -1) {
                 error_and_exit("ptrace(PTRACE_GETREGS)");
-            } 
+            }
 
-            printf("REGS:\n");
-            printf("\tRIP: 0x%llx\n", user_regs->rip);
-            printf("\tRSP: 0x%llx\n", user_regs->rsp);
-            printf("\tRBP: 0x%llx\n", user_regs->rbp);
-            printf("\tRAX: 0x%llx\n", user_regs->rax);
-            printf("\tRBX: 0x%llx\n", user_regs->rbx);
-            printf("\tRCX: 0x%llx\n", user_regs->rcx);
+            if (ptrace(PTRACE_GETFPREGS, child, NULL, user_fpregs) == -1) {
+                error_and_exit("ptrace(PTRACE_GETFPREGS)");
+            }
 
             return child;
         } else {

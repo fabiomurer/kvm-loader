@@ -11,9 +11,13 @@
 #include <sys/user.h>
 #include <sys/wait.h>
 
-struct kvm_regs load_program(char** argv) {
+
+
+struct linux_cpu_state_kvm load_program(char** argv) {
     struct user_regs_struct user_regs = {0};
-    pid_t pid = load_linux(argv, &user_regs);
+    struct user_fpregs_struct user_fpregs = {0};
+
+    pid_t pid = load_linux(argv, &user_regs, &user_fpregs);
 
     linux_to_kvm_map(pid);
 
@@ -47,6 +51,21 @@ struct kvm_regs load_program(char** argv) {
         .rflags = user_regs.eflags // TODO: controllare che non sovrascriva altri bit di rlfags (elfags sottotipo id rflags)
     };
 
+    struct kvm_fpu kvm_fpu = {
+        .fcw = user_fpregs.cwd,
+        .fsw = user_fpregs.swd,
+        .ftwx = user_fpregs.ftw,
+        .last_opcode = user_fpregs.fop,
+        .last_ip = user_fpregs.rip,
+        .last_dp = user_fpregs.rdp,
+        .mxcsr = user_fpregs.mxcsr & user_fpregs.mxcr_mask,
+    };
 
-    return kvm_regs;
+    struct linux_cpu_state_kvm cpu_state = {
+        .kvm_regs = kvm_regs,
+        .kvm_fpu = kvm_fpu,
+    };
+
+
+    return cpu_state;
 }
