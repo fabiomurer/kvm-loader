@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-
+#include <cpuid.h>
 #include <sys/ioctl.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -18,37 +18,104 @@
 #include "syscall.h"
 #include "vcpuinfo.h"
 
-void init_sse(struct kvm_sregs* sregs) {
+void load_linux_cpu_state_kvm(int vcpufd, struct linux_cpu_state_kvm* cpu_state) {
+	struct kvm_regs regs;
+	struct kvm_fpu fpu;
+
+	if (ioctl(vcpufd, KVM_GET_REGS, &regs) == -1) {
+		perror("KVM_GET_REGS");
+		exit(EXIT_FAILURE);
+	}
+
+	regs.rsp = cpu_state->kvm_regs.rsp;
+	regs.rip = cpu_state->kvm_regs.rip;
+	regs.rflags = cpu_state->kvm_regs.rflags;
+
+	if (ioctl(vcpufd, KVM_SET_REGS, &regs) == -1) {
+		perror("KVM_SET_REGS");
+		exit(EXIT_FAILURE);
+	}
+
+	if (ioctl(vcpufd, KVM_GET_FPU, &fpu) == -1) {
+		perror("KVM_GET_FPU");
+		exit(EXIT_FAILURE);
+	}
+
+	fpu.fcw = cpu_state->kvm_fpu.fcw;
+	fpu.ftwx = cpu_state->kvm_fpu.ftwx;
+	fpu.mxcsr = cpu_state->kvm_fpu.mxcsr;
+
+	if (ioctl(vcpufd, KVM_SET_FPU, &fpu) == -1) {
+		perror("KVM_SET_FPU");
+		exit(EXIT_FAILURE);
+	}
+}
+
+void init_sse(int vcpufd) {
+	struct kvm_sregs sregs;
+	if (ioctl(vcpufd, KVM_GET_SREGS, &sregs) == -1) {
+		perror("KVM_GET_SREGS");
+		exit(EXIT_FAILURE);
+	}
 	/*
 	clear the CR0.EM bit (bit 2) [ CR0 &= ~(1 << 2) ]
 	set the CR0.MP bit (bit 1) [ CR0 |= (1 << 1) ]
 	set the CR4.OSFXSR bit (bit 9) [ CR4 |= (1 << 9) ]
 	set the CR4.OSXMMEXCPT bit (bit 10) [ CR4 |= (1 << 10) ]
 	*/
-	sregs->cr0 &= ~(1 << 2); // CR0_EM
-	sregs->cr0 &= ~(1 << 3); // CR0_TS
-	sregs->cr0 |= (1 << 1);
-	sregs->cr4 |= (1 << 9);
-	sregs->cr4 |= (1 << 10);
+	sregs.cr0 &= ~(1 << 2); // CR0_EM
+	sregs.cr0 &= ~(1 << 3); // CR0_TS
+	sregs.cr0 |= (1 << 1);
+	sregs.cr4 |= (1 << 9);
+	sregs.cr4 |= (1 << 10);
 
 	// avx
-	sregs->cr4 |= (1 << 18); // OS Support for XSAVE and related instructions. Indicates that the operating system can manage CPU extended states (e.g., for AVX).
+	sregs.cr4 |= (1 << 18); // OS Support for XSAVE and related instructions. Indicates that the operating system can manage CPU extended states (e.g., for AVX).
 
+	if (ioctl(vcpufd, KVM_SET_SREGS, &sregs) == -1) {
+		perror("KVM_GET_SREGS");
+		exit(EXIT_FAILURE);
+	}
 }
 
 #define XCR0_X87    (1ULL << 0)  // x87 FPU/MMX state (must be 1)
 #define XCR0_SSE    (1ULL << 1)  // SSE state
 #define XCR0_AVX    (1ULL << 2)  // AVX state
 
-void init_avx(int vcpufd) {
+int check_xcr0_support() {
+    unsigned int eax, ebx, ecx, edx;
+    
+    // Check XSAVE feature flag
+    __cpuid(1, eax, ebx, ecx, edx);
+    if (!(ecx & (1 << 26))) {
+        printf("CPU doesn't support XSAVE\n");
+        return 0;
+    }
+    
+    // Get XCR0 supported mask
+    __cpuid_count(0xD, 0, eax, ebx, ecx, edx);
+    printf("Host XCR0 supported mask: 0x%x\n", eax);
+    return eax;
+}
+
+void init_avx(int kvm, int vcpufd) {
+	check_xcr0_support();
+
+	int xcr_capability = ioctl(kvm, KVM_CHECK_EXTENSION, KVM_CAP_XCRS);
+    if (!xcr_capability) {
+        printf("KVM_CAP_XCRS is not supported\n");
+        exit(EXIT_FAILURE);
+    }
+
 	struct kvm_xcrs xcrs;
 	memset(&xcrs, 0, sizeof(xcrs));
 
 	// We're setting XCR0 register
-    xcrs.nr_xcrs = 1;
-	xcrs.flags = 0;
+    xcrs.nr_xcrs = 1; // nuber of xcrs
+	xcrs.flags = 0;	  // should be 0 bho?
+
     xcrs.xcrs[0].xcr = 0;  // XCR0 register
-    
+    xcrs.xcrs[0].reserved = 0;
     // Enable x87 FPU, SSE, and AVX
     // All three must be enabled for AVX to work
     xcrs.xcrs[0].value = XCR0_X87 | XCR0_SSE | XCR0_AVX;
@@ -60,26 +127,22 @@ void init_avx(int vcpufd) {
     }
 }
 
-static int setup_sregs(int vcpufd)
+void setup_sregs(int vcpufd)
 {
 	struct kvm_sregs sregs;
-	int err;
-
-	err = ioctl(vcpufd, KVM_GET_SREGS, &sregs);
-	if (err) {
-		printf("Failed to get sregs: %d\n", err);
-		return err;
+	
+	if (ioctl(vcpufd, KVM_GET_SREGS, &sregs) == -1) {
+		perror("KVM_GET_SREGS");
+		exit(EXIT_FAILURE);
 	}
 
 	init_gdt(&sregs);
 	setup_paging(&sregs);
-	init_sse(&sregs);
-	init_avx(vcpufd);
-	err = ioctl(vcpufd, KVM_SET_SREGS, &sregs);
-	if (err)
-		printf("Failed to set sregs: %d\n", err);
-
-	return err;
+	
+	if (ioctl(vcpufd, KVM_SET_SREGS, &sregs) == -1) {
+		perror("KVM_SET_SREGS");
+		exit(EXIT_FAILURE);
+	}
 }
 
 static int vm_cycle(int kvm, int vcpufd)
@@ -177,11 +240,14 @@ static int start_vm(char** argv)
 	vcpufd = ioctl(vmfd, KVM_CREATE_VCPU, (unsigned long)0);
 	init_page_tables(vmfd);
 
-	ret = setup_sregs(vcpufd);
-	if (ret)
-		return ret;
+	setup_sregs(vcpufd);
 
 	struct linux_cpu_state_kvm cpu_state = load_program(argv);
+
+	load_linux_cpu_state_kvm(vcpufd, &cpu_state);
+
+	init_sse(vcpufd);
+	//init_avx(kvm, vcpufd);
 
 	print_page_mapping();
 	
