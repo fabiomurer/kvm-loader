@@ -21,7 +21,9 @@
 void load_linux_cpu_state_kvm(int vcpufd, struct linux_cpu_state_kvm* cpu_state) {
 	struct kvm_regs regs;
 	struct kvm_fpu fpu;
+	struct kvm_sregs2 sregs;
 
+	// regs
 	if (ioctl(vcpufd, KVM_GET_REGS, &regs) == -1) {
 		perror("KVM_GET_REGS");
 		exit(EXIT_FAILURE);
@@ -36,6 +38,39 @@ void load_linux_cpu_state_kvm(int vcpufd, struct linux_cpu_state_kvm* cpu_state)
 		exit(EXIT_FAILURE);
 	}
 
+	// strgs
+	if (ioctl(vcpufd, KVM_GET_SREGS2, &sregs) == -1) {
+		perror("KVM_GET_SREGS2");
+		exit(EXIT_FAILURE);
+	}
+
+	#define CR0_PE (1 << 0)
+	#define CR0_WP (1 << 16)
+	#define CR0_PG (1 << 31)
+	printf("cr0 %llx\n", sregs.cr0);
+	// cr0            0x80010001          [ PG WP PE ]
+	sregs.cr0 |= CR0_PG | CR0_WP | CR0_PG;
+	
+	#define CR4_OSXSAVE		(1 << 18)
+	#define CR4_FSGSBASE	(1 << 16)
+	#define CR4_OSFXSR		(1 << 9)
+	#define CR4_PAE 		(1 << 5)
+	//cr4     0x50220  [ OSXSAVE FSGSBASE OSFXSR PAE ]
+	sregs.cr4 = CR4_OSXSAVE | CR4_FSGSBASE | CR4_OSFXSR | CR4_PAE;
+
+	//efer           0x500               [ LMA LME ]
+	#define EFER_LMA (1 << 10)
+	#define EFER_LME (1 << 8)
+	sregs.efer = EFER_LMA | EFER_LME;
+
+	// mxcsr          0x1f80  [ IM DM ZM OM UM PM ] already set
+
+	if (ioctl(vcpufd, KVM_SET_SREGS2, &sregs) == -1) {
+		perror("KVM_SET_SREGS2");
+		exit(EXIT_FAILURE);
+	}
+
+	// fpu
 	if (ioctl(vcpufd, KVM_GET_FPU, &fpu) == -1) {
 		perror("KVM_GET_FPU");
 		exit(EXIT_FAILURE);
