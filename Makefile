@@ -3,7 +3,7 @@ LIBS := $(shell ls -1 includes/*.h)
 OBJS := $(SRC:c=o)
 CFLAGS := -O0 -g -Wall -Wextra -Iincludes/
 
-lvm: $(OBJS)
+lvm: $(OBJS) testprog
 	gcc -o lvm $(OBJS)
 
 %.o: %.c %.h
